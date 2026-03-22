@@ -22,6 +22,9 @@ interface DownloadSummary {
   failedPages: number;
 }
 
+const CHAPTER_SELECTOR_PATTERN =
+  /^(all|latest|\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:\s*,\s*\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)*)$/i;
+
 function printHelp(): void {
   console.log(`Asura Scans downloader
 
@@ -73,6 +76,73 @@ function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
+function readBooleanEnv(name: string): boolean | undefined {
+  const value = process.env[name];
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return value === "" || value === "true" || value === "1";
+}
+
+function mergeNpmConfigOptions(options: Record<string, string | boolean>): Record<string, string | boolean> {
+  const merged = { ...options };
+  const envOptions: Array<[string, string]> = [
+    ["chapters", "npm_config_chapters"],
+    ["output", "npm_config_output"],
+    ["concurrency", "npm_config_concurrency"],
+    ["cookie", "npm_config_cookie"],
+  ];
+
+  for (const [optionName, envName] of envOptions) {
+    if (merged[optionName] === undefined && process.env[envName]) {
+      merged[optionName] = process.env[envName] as string;
+    }
+  }
+
+  if (merged.overwrite === undefined) {
+    const overwrite = readBooleanEnv("npm_config_overwrite");
+    if (overwrite !== undefined) {
+      merged.overwrite = overwrite;
+    }
+  }
+
+  return merged;
+}
+
+function normalizeParsedArgs(parsed: ParsedArgs): ParsedArgs {
+  const options = mergeNpmConfigOptions(parsed.options);
+  const positionals = [...parsed.positionals];
+
+  if (parsed.command === "download" && positionals.length > 1) {
+    const [seriesInput, ...extras] = positionals;
+
+    if (options.chapters === undefined && extras[0] && CHAPTER_SELECTOR_PATTERN.test(extras[0])) {
+      options.chapters = extras.shift() as string;
+    }
+
+    if (options.output === undefined && extras[0]) {
+      options.output = extras.shift() as string;
+    }
+
+    if (options.concurrency === undefined && extras[0] && /^\d+$/.test(extras[0])) {
+      options.concurrency = extras.shift() as string;
+    }
+
+    return {
+      ...parsed,
+      positionals: [seriesInput],
+      options,
+    };
+  }
+
+  return {
+    ...parsed,
+    options,
+    positionals,
+  };
+}
+
 function formatChapterTitle(chapter: SChapter): string {
   return chapter.title ? `Chapter ${chapter.numberText} - ${chapter.title}` : `Chapter ${chapter.numberText}`;
 }
@@ -95,6 +165,33 @@ function parsePremiumAuth(cookieHeader?: string): PremiumAuth {
     accessToken,
     enabled: Boolean(accessToken),
   };
+}
+
+function getDefaultDownloadSelection(chapters: SChapter[], auth: PremiumAuth): SChapter[] {
+  const source = auth.enabled ? chapters : chapters.filter((chapter) => !chapter.isLocked);
+
+  if (source.length === 0) {
+    return [];
+  }
+
+  return selectChapters(source, "latest");
+}
+
+function classifyChapterResult(result: {
+  downloadedPages: number;
+  skippedPages: number;
+  failedPages: number;
+  totalPages: number;
+}): "downloaded" | "skipped" | "failed" {
+  if (result.downloadedPages === 0 && result.failedPages === 0 && result.skippedPages === result.totalPages) {
+    return "skipped";
+  }
+
+  if (result.downloadedPages === 0 && result.failedPages === result.totalPages) {
+    return "failed";
+  }
+
+  return "downloaded";
 }
 
 function printSeries(series: SeriesRef): void {
@@ -154,8 +251,11 @@ async function handleInfo(input: string): Promise<void> {
 async function handleDownload(input: string, options: Record<string, string | boolean>): Promise<void> {
   const series = await resolveSeries(input);
   const chapters = await fetchChapterList(series);
-  const selector = typeof options.chapters === "string" ? options.chapters : "latest";
-  const selected = selectChapters(chapters, selector);
+  const auth = parsePremiumAuth(typeof options.cookie === "string" ? options.cookie : undefined);
+  const selected =
+    typeof options.chapters === "string"
+      ? selectChapters(chapters, options.chapters)
+      : getDefaultDownloadSelection(chapters, auth);
 
   if (selected.length === 0) {
     throw new Error("No chapters matched the requested selector.");
@@ -170,7 +270,6 @@ async function handleDownload(input: string, options: Record<string, string | bo
     throw new Error("--concurrency must be a positive number.");
   }
 
-  const auth = parsePremiumAuth(typeof options.cookie === "string" ? options.cookie : undefined);
   const summary: DownloadSummary = {
     downloadedChapters: 0,
     skippedChapters: 0,
@@ -210,10 +309,18 @@ async function handleDownload(input: string, options: Record<string, string | bo
         },
       });
 
-      summary.downloadedChapters += 1;
       summary.downloadedPages += result.downloadedPages;
       summary.skippedPages += result.skippedPages;
       summary.failedPages += result.failedPages;
+
+      const chapterStatus = classifyChapterResult(result);
+      if (chapterStatus === "downloaded") {
+        summary.downloadedChapters += 1;
+      } else if (chapterStatus === "skipped") {
+        summary.skippedChapters += 1;
+      } else {
+        summary.failedChapters += 1;
+      }
 
       console.log(
         `Saved Chapter ${chapter.numberText} to ${result.chapterDir} (${result.downloadedPages} downloaded, ${result.skippedPages} skipped, ${result.failedPages} failed)`,
@@ -243,7 +350,7 @@ async function handleDownload(input: string, options: Record<string, string | bo
 }
 
 async function main(): Promise<void> {
-  const parsed = parseArgs(process.argv.slice(2));
+  const parsed = normalizeParsedArgs(parseArgs(process.argv.slice(2)));
 
   if (!parsed.command || parsed.command === "help" || parsed.command === "--help") {
     printHelp();

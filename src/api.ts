@@ -95,17 +95,37 @@ export async function searchSeries(
   offset = 0,
   limit = 10,
 ): Promise<SearchResult> {
-  const url = new URL(SERIES_API_URL);
-  url.searchParams.set("search", query);
-  url.searchParams.set("offset", String(offset));
-  url.searchParams.set("limit", String(limit));
+  const variants = buildSearchVariants(query);
+  const seen = new Set<string>();
+  const results: SeriesRef[] = [];
+  let hasMore = false;
 
-  const json = await requestJson<DataDto<MangaDto[]>>(url, {}, { throttled: true });
-  const results = (json.data ?? []).map((dto) => toSeriesRef(dto, dto.slug));
+  for (const variant of variants) {
+    const url = new URL(SERIES_API_URL);
+    url.searchParams.set("search", variant);
+    url.searchParams.set("offset", String(offset));
+    url.searchParams.set("limit", String(limit));
+
+    const json = await requestJson<DataDto<MangaDto[]>>(url, {}, { throttled: true });
+    hasMore ||= json.meta?.has_more ?? false;
+
+    for (const dto of json.data ?? []) {
+      if (seen.has(dto.slug)) {
+        continue;
+      }
+
+      seen.add(dto.slug);
+      results.push(toSeriesRef(dto, dto.slug));
+    }
+
+    if (results.length > 0) {
+      break;
+    }
+  }
 
   return {
     results,
-    hasMore: json.meta?.has_more ?? false,
+    hasMore,
   };
 }
 
@@ -130,4 +150,21 @@ export async function resolveSeries(input: string): Promise<SeriesRef> {
       `Unable to resolve "${input}" to an Asura series. ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+function buildSearchVariants(query: string): string[] {
+  const trimmed = query.trim();
+  const normalizedWhitespace = trimmed.replace(/\s+/g, " ");
+  const variants = new Set<string>([trimmed, normalizedWhitespace]);
+
+  if (normalizedWhitespace.includes(" ")) {
+    // The API search is slug-biased, so retry common title input as a slug-like variant.
+    variants.add(normalizedWhitespace.replace(/ /g, "-"));
+  }
+
+  if (normalizedWhitespace.includes("-")) {
+    variants.add(normalizedWhitespace.replace(/-/g, " "));
+  }
+
+  return [...variants].filter(Boolean);
 }
