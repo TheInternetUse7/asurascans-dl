@@ -62,7 +62,7 @@ export async function downloadAndDeobfuscate(
   tileCols: number,
   tileRows: number,
 ): Promise<Buffer> {
-  const response = await asuraFetch(url, {}, { includeOrigin: false });
+  const response = await asuraFetch(url, {}, { includeOrigin: false, retryAttempts: 6 });
   if (!response.ok) {
     throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
   }

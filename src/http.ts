@@ -1,6 +1,8 @@
 const REQUEST_INTERVAL_MS = 1000;
-const DEFAULT_RETRY_ATTEMPTS = 3;
-const RETRY_BASE_DELAY_MS = 500;
+const DEFAULT_RETRY_ATTEMPTS = 5;
+const RETRY_BASE_DELAY_MS = 1000;
+const RATE_LIMIT_BASE_DELAY_MS = 5000;
+const RATE_LIMIT_MAX_DELAY_MS = 60000;
 
 export const ASURA_BASE_URL = "https://asurascans.com";
 export const ASURA_API_BASE_URL = "https://api.asurascans.com/api";
@@ -9,9 +11,18 @@ export const ASURA_BROWSER_USER_AGENT =
 
 let throttleChain = Promise.resolve();
 let nextRequestAt = 0;
+let backoffUntil = 0;
+let adaptiveThrottleUntil = 0;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForGlobalBackoff(): Promise<void> {
+  const waitMs = Math.max(0, backoffUntil - Date.now());
+  if (waitMs > 0) {
+    await sleep(waitMs);
+  }
 }
 
 async function waitForThrottle(): Promise<void> {
@@ -34,6 +45,12 @@ async function waitForThrottle(): Promise<void> {
   }
 
   release?.();
+}
+
+function noteBackoff(delayMs: number): void {
+  const next = Date.now() + delayMs;
+  backoffUntil = Math.max(backoffUntil, next);
+  adaptiveThrottleUntil = Math.max(adaptiveThrottleUntil, next);
 }
 
 export function createAsuraHeaders(
@@ -72,7 +89,9 @@ export async function asuraFetch(
 
   for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
     try {
-      if (throttled) {
+      await waitForGlobalBackoff();
+
+      if (throttled || Date.now() < adaptiveThrottleUntil) {
         await waitForThrottle();
       }
 
@@ -82,7 +101,11 @@ export async function asuraFetch(
       });
 
       if (attempt < retryAttempts - 1 && shouldRetryResponse(response)) {
-        await sleep(getRetryDelayMs(attempt));
+        const retryDelayMs = getRetryDelayMs(attempt, response.status, response.headers.get("Retry-After"));
+        if (response.status === 429) {
+          noteBackoff(retryDelayMs);
+        }
+        await sleep(retryDelayMs);
         continue;
       }
 
@@ -101,11 +124,48 @@ export async function asuraFetch(
   throw lastError instanceof Error ? lastError : new Error("Request failed after retries.");
 }
 
-function shouldRetryResponse(response: Response): boolean {
+export function shouldRetryResponse(response: Response): boolean {
   return [408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524].includes(response.status);
 }
 
-function getRetryDelayMs(attempt: number): number {
+export function parseRetryAfterMs(retryAfterHeader: string | null, now = Date.now()): number | undefined {
+  if (!retryAfterHeader) {
+    return undefined;
+  }
+
+  const trimmed = retryAfterHeader.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+
+  const parsedDate = Date.parse(trimmed);
+  if (Number.isNaN(parsedDate)) {
+    return undefined;
+  }
+
+  return Math.max(0, parsedDate - now);
+}
+
+export function getRetryDelayMs(
+  attempt: number,
+  status?: number,
+  retryAfterHeader?: string | null,
+  now = Date.now(),
+): number {
+  if (status === 429) {
+    const retryAfterMs = parseRetryAfterMs(retryAfterHeader ?? null, now);
+    if (retryAfterMs !== undefined) {
+      return Math.min(RATE_LIMIT_MAX_DELAY_MS, Math.max(RATE_LIMIT_BASE_DELAY_MS, retryAfterMs));
+    }
+
+    return Math.min(RATE_LIMIT_MAX_DELAY_MS, RATE_LIMIT_BASE_DELAY_MS * 2 ** attempt);
+  }
+
   return RETRY_BASE_DELAY_MS * 2 ** attempt;
 }
 
