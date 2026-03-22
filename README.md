@@ -1,4 +1,4 @@
-# asurascan-dl
+# asurascans-dl
 
 CLI tool to search, inspect, and download manhwa chapters from [Asura Scans](https://asurascans.com/).
 

@@ -1,11 +1,11 @@
 {
-  "name": "asurascan-dl",
+  "name": "asurascans-dl",
   "version": "1.0.0",
   "description": "CLI tool to download manhwa from Asura Scans",
   "packageManager": "bun@1.3.11",
   "main": "dist/cli.js",
   "bin": {
-    "asurascan-dl": "dist/cli.js"
+    "asurascans-dl": "dist/cli.js"
   },
   "type": "module",
   "scripts": {

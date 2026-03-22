@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "asurascan-dl",
+      "name": "asurascans-dl",
       "dependencies": {
         "cheerio": "^1.0.0",
         "p-limit": "^6.2.0",

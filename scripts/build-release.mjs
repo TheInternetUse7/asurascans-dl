@@ -128,7 +128,7 @@ function getCurrentTarget() {
 
 function getArtifactName(target) {
   const suffix = target.replace(/^bun-/, "");
-  return suffix.startsWith("windows-") ? `asurascan-dl-${suffix}.exe` : `asurascan-dl-${suffix}`;
+  return suffix.startsWith("windows-") ? `asurascans-dl-${suffix}.exe` : `asurascans-dl-${suffix}`;
 }
 
 function assertBunInstalled() {
@@ -211,7 +211,7 @@ function runBunBuild(entryPoint, target, artifactPath) {
 
   if (target.startsWith("bun-windows-")) {
     args.push("--windows-hide-console");
-    args.push(`--windows-title=asurascan-dl`);
+    args.push(`--windows-title=asurascans-dl`);
     args.push(`--windows-version=1.0.0.0`);
     args.push(`--windows-description=Asura Scans downloader`);
   }

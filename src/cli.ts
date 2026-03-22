@@ -78,19 +78,19 @@ function printHelp(): void {
   console.log(`Asura Scans downloader
 
 Usage:
-  asurascan-dl search <query>
-  asurascan-dl info <slug-or-url>
-  asurascan-dl download <slug-or-url> [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
-  asurascan-dl catalog export [--output <file>]
-  asurascan-dl catalog download <catalog-file> [--series <selector>] [--state <file>] [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
+  asurascans-dl search <query>
+  asurascans-dl info <slug-or-url>
+  asurascans-dl download <slug-or-url> [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
+  asurascans-dl catalog export [--output <file>]
+  asurascans-dl catalog download <catalog-file> [--series <selector>] [--state <file>] [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
 
 Examples:
-  asurascan-dl search "iron-blooded"
-  asurascan-dl info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
-  asurascan-dl download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --output downloads
-  asurascan-dl download revenge-of-the-iron-blooded-sword-hound --chapters latest-public --dry-run
-  asurascan-dl catalog export --output asura-catalog.json
-  asurascan-dl catalog download asura-catalog.json --series pending --chapters latest-public
+  asurascans-dl search "iron-blooded"
+  asurascans-dl info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
+  asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --output downloads
+  asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters latest-public --dry-run
+  asurascans-dl catalog export --output asura-catalog.json
+  asurascans-dl catalog download asura-catalog.json --series pending --chapters latest-public
 `);
 }
 

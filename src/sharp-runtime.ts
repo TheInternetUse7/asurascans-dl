@@ -25,7 +25,7 @@ function getBunRuntime(): BunRuntime | null {
 function getSharpCacheRoot(): string {
   return path.join(
     tmpdir(),
-    "asurascan-dl",
+    "asurascans-dl",
     "sharp-runtime",
     embeddedSharpCacheKey || `${process.platform}-${process.arch}`,
   );
