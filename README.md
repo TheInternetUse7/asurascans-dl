@@ -22,58 +22,53 @@ This implementation mirrors the Mihon/Tachiyomi extension approach:
 
 ## Requirements
 
-- Node.js 22+
-- npm
+- Bun 1.3.11+
 
 ## Install
 
 ```bash
-npm install
+bun install
 ```
+
+The lockfile is `bun.lock`, and the repo is intended to be installed and run with Bun.
 
 ## Usage
 
 Run directly from source:
 
 ```bash
-node --import tsx src/cli.ts <command>
+bun run ./src/cli.ts <command>
 ```
 
-Or with the npm aliases:
+Or with the package scripts:
 
 ```bash
-npm run dev -- <command>
-```
-
-For npm scripts with CLI flags, pass downloader flags after a second `--`:
-
-```bash
-npm run dev -- download "revenge-of-the-iron-blooded-sword-hound" -- --chapters "latest-public" --dry-run
+bun run dev <command>
 ```
 
 Catalog commands:
 
 ```bash
-npm run dev -- catalog export --output _internal/asura-catalog.json
-npm run dev -- catalog download _internal/asura-catalog.json --series pending --chapters latest-public
+bun run dev catalog export --output asura-catalog.json
+bun run dev catalog download asura-catalog.json --series pending --chapters latest-public
 ```
 
 ### Search
 
 ```bash
-npm run dev -- search "iron-blooded"
+bun run dev search "iron-blooded"
 ```
 
 ### Info
 
 ```bash
-npm run dev -- info revenge-of-the-iron-blooded-sword-hound
+bun run dev info revenge-of-the-iron-blooded-sword-hound
 ```
 
 You can also pass a full Asura URL:
 
 ```bash
-npm run dev -- info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
+bun run dev info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
 ```
 
 ### Download
@@ -81,49 +76,49 @@ npm run dev -- info https://asurascans.com/comics/revenge-of-the-iron-blooded-sw
 Download the latest chapter:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound
+bun run dev download revenge-of-the-iron-blooded-sword-hound
 ```
 
 Download the latest public chapter explicitly:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters latest-public
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters latest-public
 ```
 
 Download a range:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 150-154
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 150-154
 ```
 
 Download specific chapters to a custom directory:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 152,154 --output downloads
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 152,154 --output downloads
 ```
 
 Overwrite existing files:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 154 --overwrite
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 154 --overwrite
 ```
 
 Control image download concurrency:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 154 --concurrency 8
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 154 --concurrency 8
 ```
 
 Preview the chapter resolution without writing files:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --dry-run
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --dry-run
 ```
 
 Create a CBZ alongside the chapter folder:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 154 --cbz
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 154 --cbz
 ```
 
 ### Catalog Snapshot And Tracking
@@ -131,19 +126,19 @@ npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 154 -
 Export the full site catalog to JSON:
 
 ```bash
-npm run dev -- catalog export --output _internal/asura-catalog.json
+bun run dev catalog export --output asura-catalog.json
 ```
 
 Download from a catalog snapshot:
 
 ```bash
-npm run dev -- catalog download _internal/asura-catalog.json --series all --chapters latest-public
+bun run dev catalog download asura-catalog.json --series all --chapters latest-public
 ```
 
 Download only series that are not yet marked complete in the tracking state:
 
 ```bash
-npm run dev -- catalog download _internal/asura-catalog.json --series pending --chapters all
+bun run dev catalog download asura-catalog.json --series pending --chapters all
 ```
 
 ## Premium Chapters
@@ -153,7 +148,7 @@ Public chapters work without authentication.
 For premium chapters, pass a browser-exported `Cookie` header containing `access_token`:
 
 ```bash
-npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 155 --cookie "access_token=...; other_cookie=..."
+bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 155 --cookie "access_token=...; other_cookie=..."
 ```
 
 Notes:
@@ -188,32 +183,33 @@ Catalog-driven downloads keep progress in a separate `.state.json` file so the s
 Type-check:
 
 ```bash
-npm run typecheck
+bun run typecheck
 ```
 
 Run tests:
 
 ```bash
-npm test
+bun test
 ```
 
 Build:
 
 ```bash
-npm run build
+bun run build
 ```
 
 Release binary build:
 
 ```bash
-npm run release:build
+bun run release:build
 ```
 
 Notes:
 
-- release binaries are built with Node SEA and target GitHub release artifacts for Windows and Linux
-- `npm run release:build` currently requires Node.js 25+ because it uses `node --build-sea`
-- normal development and source usage still work on Node.js 22+
+- release binaries are built with Bun and target native GitHub release artifacts for Windows and Linux
+- each GitHub runner builds its own native artifact because the packaged `sharp` runtime is platform-specific
+- the release binary is still a single downloadable file, but on first image-processing use it extracts the embedded `sharp` runtime to a cache directory under the system temp folder
+- normal development and source usage are expected to run under Bun
 
 ## Project Notes
 

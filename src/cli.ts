@@ -89,8 +89,8 @@ Examples:
   asurascan-dl info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
   asurascan-dl download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --output downloads
   asurascan-dl download revenge-of-the-iron-blooded-sword-hound --chapters latest-public --dry-run
-  asurascan-dl catalog export --output _internal/asura-catalog.json
-  asurascan-dl catalog download _internal/asura-catalog.json --series pending --chapters latest-public
+  asurascan-dl catalog export --output asura-catalog.json
+  asurascan-dl catalog download asura-catalog.json --series pending --chapters latest-public
 `);
 }
 

@@ -3,7 +3,12 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readCatalogFile, selectCatalogSeries, writeCatalogFile } from "../src/catalog.js";
+import {
+  getNextCatalogOffset,
+  readCatalogFile,
+  selectCatalogSeries,
+  writeCatalogFile,
+} from "../src/catalog.js";
 import type { CatalogFile, SeriesRef } from "../src/types.js";
 
 const series: SeriesRef[] = [
@@ -73,4 +78,10 @@ test("writeCatalogFile and readCatalogFile round-trip catalog data", async () =>
   assert.equal(readBack.series.length, 2);
   assert.equal(readBack.series[0]?.apiSlug, "alpha");
   assert.match(raw, /"totalSeries": 2/);
+});
+
+test("getNextCatalogOffset follows the server page size when the API ignores the requested limit", () => {
+  assert.equal(getNextCatalogOffset(0, 20, { per_page: 20 }), 20);
+  assert.equal(getNextCatalogOffset(20, 20, { per_page: 20 }), 40);
+  assert.equal(getNextCatalogOffset(40, 20, { per_page: 20 }), 60);
 });

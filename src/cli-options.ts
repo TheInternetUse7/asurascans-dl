@@ -44,47 +44,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
-function readBooleanEnv(name: string): boolean | undefined {
-  const value = process.env[name];
-  if (value === undefined) {
-    return undefined;
-  }
-
-  return value === "" || value === "true" || value === "1";
-}
-
-function mergeNpmConfigOptions(options: Record<string, string | boolean>): Record<string, string | boolean> {
-  const merged = { ...options };
-  const envOptions: Array<[string, string]> = [
-    ["chapters", "npm_config_chapters"],
-    ["output", "npm_config_output"],
-    ["concurrency", "npm_config_concurrency"],
-    ["cookie", "npm_config_cookie"],
-    ["series", "npm_config_series"],
-    ["state", "npm_config_state"],
-  ];
-
-  for (const [optionName, envName] of envOptions) {
-    if (merged[optionName] === undefined && process.env[envName]) {
-      merged[optionName] = process.env[envName] as string;
-    }
-  }
-
-  for (const booleanOption of BOOLEAN_OPTIONS) {
-    if (merged[booleanOption] === undefined) {
-      const envName = `npm_config_${booleanOption.replace(/-/g, "_")}`;
-      const value = readBooleanEnv(envName);
-      if (value !== undefined) {
-        merged[booleanOption] = value;
-      }
-    }
-  }
-
-  return merged;
-}
-
 export function normalizeParsedArgs(parsed: ParsedArgs): ParsedArgs {
-  const options = mergeNpmConfigOptions(parsed.options);
+  const options = { ...parsed.options };
   const positionals = [...parsed.positionals];
 
   if (parsed.command === "download" && positionals.length > 1) {

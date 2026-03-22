@@ -1,5 +1,5 @@
-import sharp from "sharp";
 import { asuraFetch } from "./http.js";
+import { loadSharp } from "./sharp-runtime.js";
 
 export async function deobfuscateImage(
   imageBuffer: Buffer,
@@ -7,6 +7,7 @@ export async function deobfuscateImage(
   tileCols: number,
   tileRows: number,
 ): Promise<Buffer> {
+  const sharp = await loadSharp();
   const image = sharp(imageBuffer);
   const metadata = await image.metadata();
 
@@ -16,7 +17,7 @@ export async function deobfuscateImage(
 
   const tileWidth = Math.floor(metadata.width / tileCols);
   const tileHeight = Math.floor(metadata.height / tileRows);
-  const composites: sharp.OverlayOptions[] = [];
+  const composites: Array<{ input: Buffer; left: number; top: number }> = [];
 
   for (let sourceIndex = 0; sourceIndex < tiles.length; sourceIndex += 1) {
     const destinationIndex = tiles[sourceIndex];

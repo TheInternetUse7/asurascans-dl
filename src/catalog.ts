@@ -35,11 +35,29 @@ function toSeriesRef(dto: MangaDto): SeriesRef {
   };
 }
 
+export function getNextCatalogOffset(
+  currentOffset: number,
+  batchSize: number,
+  meta?: DataDto<MangaDto[]>["meta"],
+): number {
+  const serverPageSize = meta?.per_page;
+  if (typeof serverPageSize === "number" && serverPageSize > 0) {
+    return currentOffset + serverPageSize;
+  }
+
+  if (batchSize > 0) {
+    return currentOffset + batchSize;
+  }
+
+  return currentOffset;
+}
+
 export async function fetchAllSeriesCatalog(): Promise<CatalogFile> {
   const seen = new Set<string>();
   const results: SeriesRef[] = [];
   let offset = 0;
   let hasMore = true;
+  let expectedTotal: number | undefined;
 
   while (hasMore) {
     const url = new URL(SERIES_API_URL);
@@ -50,6 +68,7 @@ export async function fetchAllSeriesCatalog(): Promise<CatalogFile> {
 
     const json = await requestJson<DataDto<MangaDto[]>>(url, {}, { throttled: true });
     const batch = json.data ?? [];
+    expectedTotal = typeof json.meta?.total === "number" ? json.meta.total : expectedTotal;
 
     for (const dto of batch) {
       if (seen.has(dto.slug)) {
@@ -60,8 +79,12 @@ export async function fetchAllSeriesCatalog(): Promise<CatalogFile> {
       results.push(toSeriesRef(dto));
     }
 
-    hasMore = json.meta?.has_more ?? false;
-    offset += DEFAULT_PAGE_SIZE;
+    const nextOffset = getNextCatalogOffset(offset, batch.length, json.meta);
+    const reachedExpectedTotal = typeof expectedTotal === "number" && results.length >= expectedTotal;
+    const exhaustedPage = batch.length === 0 || nextOffset === offset;
+
+    hasMore = (json.meta?.has_more ?? false) && !reachedExpectedTotal && !exhaustedPage;
+    offset = nextOffset;
   }
 
   return {
