@@ -74,6 +74,49 @@ function addSummary(target: DownloadSummary, source: DownloadSummary): void {
   target.cbzCreated += source.cbzCreated;
 }
 
+function createChapterProgressReporter(
+  chapterLabel: string,
+  totalPages: number,
+): {
+  update: () => void;
+  finish: () => void;
+  isInline: boolean;
+} {
+  const isInline = Boolean(process.stdout.isTTY);
+
+  if (!isInline) {
+    console.log(`${chapterLabel} [0/${totalPages}]`);
+    return {
+      update: () => undefined,
+      finish: () => undefined,
+      isInline,
+    };
+  }
+
+  let completedPages = 0;
+  let previousLength = 0;
+
+  const writeProgress = (): void => {
+    const text = `${chapterLabel} [${completedPages}/${totalPages}]`;
+    const padded = text.padEnd(previousLength);
+    previousLength = Math.max(previousLength, text.length);
+    process.stdout.write(`\r${padded}`);
+  };
+
+  writeProgress();
+
+  return {
+    update: () => {
+      completedPages += 1;
+      writeProgress();
+    },
+    finish: () => {
+      process.stdout.write("\n");
+    },
+    isInline,
+  };
+}
+
 function printHelp(): void {
   console.log(`Asura Scans downloader
 
@@ -221,8 +264,12 @@ async function executeSeriesDownload(
 
     try {
       const { pages, usedPremium } = await fetchChapterPages(series, chapter, runtime.auth);
-      const chapterLabel = runtime.dryRun ? "Planned" : "Downloading";
-      console.log(`${chapterLabel} Chapter ${chapter.numberText} (${pages.length} pages${usedPremium ? ", premium" : ""})`);
+      const chapterLabel = runtime.dryRun
+        ? "Planned"
+        : `Downloading Chapter ${chapter.numberText}${usedPremium ? " (premium)" : ""}`;
+      if (runtime.dryRun) {
+        console.log(`${chapterLabel} (${pages.length} pages${usedPremium ? ", premium" : ""})`);
+      }
 
       if (runtime.dryRun) {
         summary.plannedChapters += 1;
@@ -242,18 +289,27 @@ async function executeSeriesDownload(
         continue;
       }
 
-      const result = await downloadChapter(series.title, chapter.numberText, pages, {
-        outputDir: runtime.outputDir,
-        concurrency: runtime.concurrency,
-        overwrite: runtime.overwrite,
-        onProgress: (event) => {
-          if (event.status === "failed") {
-            console.error(
-              `  page ${event.page}/${event.total} failed for Chapter ${event.chapter}: ${event.error}`,
-            );
-          }
-        },
-      });
+      const progressReporter = createChapterProgressReporter(chapterLabel, pages.length);
+      let result;
+
+      try {
+        result = await downloadChapter(series.title, chapter.numberText, pages, {
+          outputDir: runtime.outputDir,
+          concurrency: runtime.concurrency,
+          overwrite: runtime.overwrite,
+          onProgress: (event) => {
+            progressReporter.update();
+
+            if (!progressReporter.isInline && event.status === "failed") {
+              console.error(
+                `  page ${event.page}/${event.total} failed for Chapter ${event.chapter}: ${event.error}`,
+              );
+            }
+          },
+        });
+      } finally {
+        progressReporter.finish();
+      }
 
       summary.downloadedPages += result.downloadedPages;
       summary.skippedPages += result.skippedPages;
