@@ -11,6 +11,16 @@ export function getChapterDir(outputDir: string, series: SeriesRef, chapterNumbe
   return path.join(getSeriesDir(outputDir, series), `Chapter ${chapterNumber}`);
 }
 
+export function getChapterMetadataPath(
+  outputDir: string,
+  series: SeriesRef,
+  chapterNumber: string,
+  archiveOnly = false,
+): string {
+  const chapterDir = getChapterDir(outputDir, series, chapterNumber);
+  return archiveOnly ? `${chapterDir}.json` : path.join(chapterDir, "chapter.json");
+}
+
 function getChapterUrl(series: SeriesRef, chapter: SChapter): string {
   return `${series.url}/chapter/${chapter.numberText}`;
 }
@@ -63,8 +73,10 @@ export async function writeChapterMetadata(
     failedPages: number;
     totalPages: number;
   },
+  options: {
+    archiveOnly?: boolean;
+  } = {},
 ): Promise<string> {
-  const chapterDir = getChapterDir(outputDir, series, chapter.numberText);
   const metadata: ChapterMetadata = {
     series: {
       title: series.title,
@@ -89,8 +101,8 @@ export async function writeChapterMetadata(
     generatedAt: new Date().toISOString(),
   };
 
-  await mkdir(chapterDir, { recursive: true });
-  const outputPath = path.join(chapterDir, "chapter.json");
+  const outputPath = getChapterMetadataPath(outputDir, series, chapter.numberText, options.archiveOnly === true);
+  await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
   return outputPath;
 }

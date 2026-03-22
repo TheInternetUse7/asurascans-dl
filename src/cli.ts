@@ -1,14 +1,23 @@
 #!/usr/bin/env node
 
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { resolveSeries, searchSeries } from "./api.js";
-import { createChapterCbz } from "./archive.js";
+import { createChapterCbz, getChapterCbzPath } from "./archive.js";
 import { fetchAllSeriesCatalog, readCatalogFile, selectCatalogSeries, writeCatalogFile } from "./catalog.js";
 import { normalizeParsedArgs, parseArgs } from "./cli-options.js";
 import { downloadChapter } from "./downloader.js";
 import { getChapterDir, writeChapterMetadata, writeSeriesMetadata } from "./metadata.js";
 import { PremiumChapterError, fetchChapterList, fetchChapterPages } from "./scraper.js";
 import { selectChapters } from "./selection.js";
+import {
+  completeSessionSummary,
+  createSessionSummary,
+  getDefaultSessionSummaryPath,
+  updateSessionSummary,
+  writeSessionSummary,
+} from "./session-summary.js";
 import {
   getCompletedSeriesSet,
   getDefaultStatePath,
@@ -17,6 +26,7 @@ import {
   updateSeriesState,
 } from "./tracking.js";
 import type { TrackedChapterResult } from "./tracking.js";
+import type { DownloadSessionSummary, SessionSummaryTotals } from "./types.js";
 import type { PremiumAuth, SChapter, SeriesRef } from "./types.js";
 
 interface DownloadSummary {
@@ -46,6 +56,11 @@ interface SeriesExecutionResult {
   selected: SChapter[];
   chapterResults: TrackedChapterResult[];
   summary: DownloadSummary;
+}
+
+interface SeriesProgressSnapshot extends SeriesExecutionResult {
+  series: SeriesRef;
+  completed: boolean;
 }
 
 function createEmptySummary(): DownloadSummary {
@@ -218,6 +233,7 @@ function buildRuntimeOptions(options: Record<string, string | boolean>): Downloa
 async function executeSeriesDownload(
   series: SeriesRef,
   runtime: DownloadRuntimeOptions,
+  onProgress?: (snapshot: SeriesProgressSnapshot) => Promise<void> | void,
 ): Promise<SeriesExecutionResult> {
   const chapters = await fetchChapterList(series);
   const selected = runtime.chaptersSelector
@@ -230,6 +246,20 @@ async function executeSeriesDownload(
 
   const summary = createEmptySummary();
   const chapterResults: TrackedChapterResult[] = [];
+  const emitProgress = async (completed: boolean): Promise<void> => {
+    if (!onProgress) {
+      return;
+    }
+
+    await onProgress({
+      series,
+      chapters,
+      selected,
+      chapterResults: [...chapterResults],
+      summary: { ...summary },
+      completed,
+    });
+  };
 
   if (!runtime.dryRun) {
     await writeSeriesMetadata(runtime.outputDir, series, chapters);
@@ -247,7 +277,28 @@ async function executeSeriesDownload(
     console.log(`CBZ output: ${runtime.dryRun ? "planned" : "enabled"}`);
   }
 
+  await emitProgress(false);
+
   for (const chapter of selected) {
+    const chapterDir = getChapterDir(runtime.outputDir, series, chapter.numberText);
+    const chapterCbzPath = getChapterCbzPath(chapterDir);
+
+    if (runtime.writeCbz && !runtime.overwrite && existsSync(chapterCbzPath)) {
+      summary.skippedChapters += 1;
+      console.log(`Skipping Chapter ${chapter.numberText}: CBZ already exists.`);
+      chapterResults.push({
+        chapter,
+        status: "skipped",
+        downloadedPages: 0,
+        skippedPages: 0,
+        failedPages: 0,
+        cbzPath: chapterCbzPath,
+        note: "cbz already exists",
+      });
+      await emitProgress(false);
+      continue;
+    }
+
     if (chapter.isLocked && !runtime.auth.enabled) {
       summary.skippedChapters += 1;
       console.log(`Skipping Chapter ${chapter.numberText}: locked and no access_token cookie was provided.`);
@@ -259,6 +310,7 @@ async function executeSeriesDownload(
         failedPages: 0,
         note: "locked without access token",
       });
+      await emitProgress(false);
       continue;
     }
 
@@ -286,6 +338,7 @@ async function executeSeriesDownload(
           usedPremium,
           note: `planned ${pages.length} page download`,
         });
+        await emitProgress(false);
         continue;
       }
 
@@ -325,11 +378,18 @@ async function executeSeriesDownload(
       }
 
       let cbzPath: string | undefined;
-      await writeChapterMetadata(runtime.outputDir, series, chapter, usedPremium, result);
+      await writeChapterMetadata(
+        runtime.outputDir,
+        series,
+        chapter,
+        usedPremium,
+        result,
+        { archiveOnly: runtime.writeCbz },
+      );
 
       if (runtime.writeCbz) {
-        const chapterDir = getChapterDir(runtime.outputDir, series, chapter.numberText);
         cbzPath = await createChapterCbz(chapterDir);
+        await rm(chapterDir, { recursive: true, force: true });
         summary.cbzCreated += 1;
         console.log(`Created CBZ: ${cbzPath}`);
       }
@@ -341,12 +401,15 @@ async function executeSeriesDownload(
         skippedPages: result.skippedPages,
         failedPages: result.failedPages,
         usedPremium,
-        outputDir: result.chapterDir,
+        outputDir: runtime.writeCbz ? undefined : result.chapterDir,
         cbzPath,
       });
+      await emitProgress(false);
 
       console.log(
-        `Saved Chapter ${chapter.numberText} to ${result.chapterDir} (${result.downloadedPages} downloaded, ${result.skippedPages} skipped, ${result.failedPages} failed)`,
+        runtime.writeCbz
+          ? `Saved Chapter ${chapter.numberText} to ${cbzPath} (${result.downloadedPages} downloaded, ${result.skippedPages} skipped, ${result.failedPages} failed)`
+          : `Saved Chapter ${chapter.numberText} to ${result.chapterDir} (${result.downloadedPages} downloaded, ${result.skippedPages} skipped, ${result.failedPages} failed)`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -362,6 +425,7 @@ async function executeSeriesDownload(
           failedPages: 0,
           note: message,
         });
+        await emitProgress(false);
         continue;
       }
 
@@ -375,6 +439,7 @@ async function executeSeriesDownload(
         failedPages: 0,
         note: message,
       });
+      await emitProgress(false);
     }
   }
 
@@ -396,11 +461,27 @@ async function executeSeriesDownload(
     console.log(`  cbz created: ${summary.cbzCreated}`);
   }
 
+  await emitProgress(true);
+
   return {
     chapters,
     selected,
     chapterResults,
     summary,
+  };
+}
+
+function toSessionTotals(summary: DownloadSummary): SessionSummaryTotals {
+  return {
+    downloadedChapters: summary.downloadedChapters,
+    skippedChapters: summary.skippedChapters,
+    failedChapters: summary.failedChapters,
+    plannedChapters: summary.plannedChapters,
+    downloadedPages: summary.downloadedPages,
+    skippedPages: summary.skippedPages,
+    failedPages: summary.failedPages,
+    plannedPages: summary.plannedPages,
+    cbzCreated: summary.cbzCreated,
   };
 }
 
@@ -448,7 +529,44 @@ async function handleInfo(input: string): Promise<void> {
 async function handleDownload(input: string, options: Record<string, string | boolean>): Promise<void> {
   const series = await resolveSeries(input);
   const runtime = buildRuntimeOptions(options);
-  await executeSeriesDownload(series, runtime);
+  let session: DownloadSessionSummary | undefined;
+  let sessionPath: string | undefined;
+
+  if (!runtime.dryRun) {
+    session = createSessionSummary({
+      mode: "download",
+      outputDir: runtime.outputDir,
+      concurrency: runtime.concurrency,
+      dryRun: runtime.dryRun,
+      overwrite: runtime.overwrite,
+      writeCbz: runtime.writeCbz,
+      chaptersSelector: runtime.chaptersSelector,
+      requestedSeriesCount: 1,
+    });
+    sessionPath = getDefaultSessionSummaryPath(runtime.outputDir, session.startedAt);
+    await writeSessionSummary(sessionPath, session);
+    console.log(`Session summary: ${sessionPath}`);
+  }
+
+  await executeSeriesDownload(series, runtime, async (snapshot) => {
+    if (!session || !sessionPath) {
+      return;
+    }
+
+    updateSessionSummary(session, {
+      series: snapshot.series,
+      selectedChapterNumbers: snapshot.selected.map((chapter) => chapter.numberText),
+      chapterResults: snapshot.chapterResults,
+      totals: toSessionTotals(snapshot.summary),
+      completed: snapshot.completed,
+    });
+    await writeSessionSummary(sessionPath, session);
+  });
+
+  if (session && sessionPath) {
+    completeSessionSummary(session);
+    await writeSessionSummary(sessionPath, session);
+  }
 }
 
 async function handleCatalogExport(options: Record<string, string | boolean>): Promise<void> {
@@ -485,11 +603,45 @@ async function handleCatalogDownload(
   console.log(`Tracking state: ${statePath}`);
   console.log(`Series selected: ${selectedSeries.length}`);
 
+  let session: DownloadSessionSummary | undefined;
+  let sessionPath: string | undefined;
+
+  if (!runtime.dryRun) {
+    session = createSessionSummary({
+      mode: "catalog-download",
+      outputDir: runtime.outputDir,
+      concurrency: runtime.concurrency,
+      dryRun: runtime.dryRun,
+      overwrite: runtime.overwrite,
+      writeCbz: runtime.writeCbz,
+      chaptersSelector: runtime.chaptersSelector,
+      requestedSeriesCount: selectedSeries.length,
+      catalogPath,
+      statePath,
+    });
+    sessionPath = getDefaultSessionSummaryPath(runtime.outputDir, session.startedAt);
+    await writeSessionSummary(sessionPath, session);
+    console.log(`Session summary: ${sessionPath}`);
+  }
+
   for (const [index, series] of selectedSeries.entries()) {
     console.log("");
     console.log(`[${index + 1}/${selectedSeries.length}] ${series.title}`);
 
-    const result = await executeSeriesDownload(series, runtime);
+    const result = await executeSeriesDownload(series, runtime, async (snapshot) => {
+      if (!session || !sessionPath) {
+        return;
+      }
+
+      updateSessionSummary(session, {
+        series: snapshot.series,
+        selectedChapterNumbers: snapshot.selected.map((chapter) => chapter.numberText),
+        chapterResults: snapshot.chapterResults,
+        totals: toSessionTotals(snapshot.summary),
+        completed: snapshot.completed,
+      });
+      await writeSessionSummary(sessionPath, session);
+    });
     addSummary(aggregate, result.summary);
 
     if (!runtime.dryRun) {
@@ -517,6 +669,10 @@ async function handleCatalogDownload(
     console.log(`  cbz created: ${aggregate.cbzCreated}`);
   }
   if (!runtime.dryRun) {
+    if (session && sessionPath) {
+      completeSessionSummary(session);
+      await writeSessionSummary(sessionPath, session);
+    }
     console.log(`State updated: ${statePath}`);
   }
 }

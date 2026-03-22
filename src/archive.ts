@@ -5,8 +5,12 @@ import yazl from "yazl";
 
 const PAGE_FILE_PATTERN = /^\d+\.(?:webp|png|jpe?g|gif)$/i;
 
+export function getChapterCbzPath(chapterDir: string): string {
+  return `${chapterDir}.cbz`;
+}
+
 export async function createChapterCbz(chapterDir: string, outputPath?: string): Promise<string> {
-  const targetPath = outputPath ?? `${chapterDir}.cbz`;
+  const targetPath = outputPath ?? getChapterCbzPath(chapterDir);
   const entries = await readdir(chapterDir, { withFileTypes: true });
   const pageFiles = entries
     .filter((entry) => entry.isFile() && PAGE_FILE_PATTERN.test(entry.name))

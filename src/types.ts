@@ -210,3 +210,63 @@ export interface SeriesMetadata {
   };
   generatedAt: string;
 }
+
+export interface SessionSummaryTotals {
+  downloadedChapters: number;
+  skippedChapters: number;
+  failedChapters: number;
+  plannedChapters: number;
+  downloadedPages: number;
+  skippedPages: number;
+  failedPages: number;
+  plannedPages: number;
+  cbzCreated: number;
+}
+
+export interface SessionChapterSummary {
+  number: string;
+  title: string;
+  status: "downloaded" | "skipped" | "failed" | "planned";
+  downloadedPages: number;
+  skippedPages: number;
+  failedPages: number;
+  usedPremium?: boolean;
+  outputDir?: string;
+  cbzPath?: string;
+  note?: string;
+}
+
+export interface SessionSeriesSummary {
+  title: string;
+  apiSlug: string;
+  publicSlug: string;
+  requestedChapters: string[];
+  status: "in_progress" | "downloaded" | "skipped" | "failed" | "planned" | "partial";
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  totals: SessionSummaryTotals;
+  chapters: SessionChapterSummary[];
+}
+
+export interface DownloadSessionSummary {
+  version: 1;
+  sessionId: string;
+  mode: "download" | "catalog-download";
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  outputDir: string;
+  catalogPath?: string;
+  statePath?: string;
+  dryRun: boolean;
+  overwrite: boolean;
+  writeCbz: boolean;
+  concurrency: number;
+  chaptersSelector?: string;
+  requestedSeriesCount: number;
+  startedSeriesCount: number;
+  completedSeriesCount: number;
+  totals: SessionSummaryTotals;
+  series: SessionSeriesSummary[];
+}

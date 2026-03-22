@@ -57,3 +57,20 @@ test("writeChapterMetadata writes chapter.json", async () => {
   assert.equal(data.chapter.usedPremium, false);
   assert.equal(data.pages.total, 14);
 });
+
+test("writeChapterMetadata writes a sidecar json when archiveOnly is enabled", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "asurascans-chapter-cbz-"));
+  const outputPath = await writeChapterMetadata(tempDir, series, chapter, false, {
+    downloadedPages: 14,
+    skippedPages: 0,
+    failedPages: 0,
+    totalPages: 14,
+  }, {
+    archiveOnly: true,
+  });
+  const data = JSON.parse(await readFile(outputPath, "utf8"));
+
+  assert.ok(outputPath.endsWith("Chapter 154.json"));
+  assert.equal(data.chapter.number, "154");
+  assert.equal(data.pages.total, 14);
+});

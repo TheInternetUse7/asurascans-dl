@@ -174,7 +174,8 @@ downloads/Revenge of the Iron-Blooded Sword Hound/Chapter 154/001.webp
 Direct image pages keep their original extension when possible. Reconstructed tiled pages are written as `.webp`.
 Each downloaded chapter also gets a `chapter.json` file with source and result metadata.
 Each series directory gets a `series.json` file with normalized series metadata and chapter counts.
-If `--cbz` is enabled, each chapter folder also gets a sibling `.cbz` archive containing only page images.
+Each non-dry-run session also writes a `download-session-<timestamp>.json` file in the output root and updates it throughout the run so long catalog downloads leave behind a resumable audit trail even if they are interrupted.
+If `--cbz` is enabled, the chapter folder is treated as temporary staging only. The final output keeps `Chapter <n>.cbz` plus a sibling `Chapter <n>.json` metadata file, and reruns skip chapters whose `.cbz` already exists unless `--overwrite` is set.
 Catalog exports are written as standalone snapshot JSON files.
 Catalog-driven downloads keep progress in a separate `.state.json` file so the snapshot stays immutable.
 
