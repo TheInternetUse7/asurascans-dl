@@ -45,6 +45,12 @@ Or with the npm aliases:
 npm run dev -- <command>
 ```
 
+For npm scripts with CLI flags, pass downloader flags after a second `--`:
+
+```bash
+npm run dev -- download "revenge-of-the-iron-blooded-sword-hound" -- --chapters "latest-public" --dry-run
+```
+
 Catalog commands:
 
 ```bash
@@ -196,6 +202,18 @@ Build:
 ```bash
 npm run build
 ```
+
+Release binary build:
+
+```bash
+npm run release:build
+```
+
+Notes:
+
+- release binaries are built with Node SEA and target GitHub release artifacts for Windows and Linux
+- `npm run release:build` currently requires Node.js 25+ because it uses `node --build-sea`
+- normal development and source usage still work on Node.js 22+
 
 ## Project Notes
 

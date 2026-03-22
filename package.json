@@ -3,11 +3,16 @@
   "version": "1.0.0",
   "description": "CLI tool to download manhwa from Asura Scans",
   "main": "dist/cli.js",
+  "bin": {
+    "asurascan-dl": "dist/cli.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "build:bundle": "node scripts/build-sea.mjs",
     "start": "node --import tsx src/cli.ts",
     "dev": "tsx src/cli.ts",
+    "release:build": "node scripts/build-sea.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/**/*.test.ts"
   },
@@ -20,6 +25,7 @@
   "devDependencies": {
     "@types/node": "^22.13.10",
     "@types/yazl": "^3.3.0",
+    "esbuild": "^0.27.4",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }
