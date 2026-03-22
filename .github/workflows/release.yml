@@ -19,7 +19,7 @@ jobs:
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -35,7 +35,7 @@ jobs:
         run: bun run release:build
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-${{ matrix.os }}
           path: dist/releases/*
@@ -44,14 +44,22 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist/release-assets
 
       - name: Publish GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          tag="${GITHUB_REF_NAME:-manual-build}"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes
-          find dist/release-assets -type f -print0 | xargs -0 -I{} gh release upload "$tag" "{}" --clobber
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="manual-build-${GITHUB_RUN_NUMBER}"
+          fi
+
+          gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1 || \
+            gh release create "$tag" --repo "$GH_REPO" --target "$GITHUB_SHA" --generate-notes
+
+          find dist/release-assets -type f -print0 | xargs -0 -I{} gh release upload "$tag" "{}" --repo "$GH_REPO" --clobber
