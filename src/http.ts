@@ -1,4 +1,6 @@
 const REQUEST_INTERVAL_MS = 1000;
+const DEFAULT_RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
 
 export const ASURA_BASE_URL = "https://asurascans.com";
 export const ASURA_API_BASE_URL = "https://api.asurascans.com/api";
@@ -58,18 +60,53 @@ export function createAsuraHeaders(
 export async function asuraFetch(
   input: string | URL,
   init: RequestInit = {},
-  options: { throttled?: boolean; includeOrigin?: boolean } = {},
+  options: { throttled?: boolean; includeOrigin?: boolean; retryAttempts?: number } = {},
 ): Promise<Response> {
-  const { throttled = false, includeOrigin = true } = options;
+  const {
+    throttled = false,
+    includeOrigin = true,
+    retryAttempts = DEFAULT_RETRY_ATTEMPTS,
+  } = options;
 
-  if (throttled) {
-    await waitForThrottle();
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
+    try {
+      if (throttled) {
+        await waitForThrottle();
+      }
+
+      const response = await fetch(input, {
+        ...init,
+        headers: createAsuraHeaders(init.headers, includeOrigin),
+      });
+
+      if (attempt < retryAttempts - 1 && shouldRetryResponse(response)) {
+        await sleep(getRetryDelayMs(attempt));
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt >= retryAttempts - 1) {
+        throw error;
+      }
+
+      await sleep(getRetryDelayMs(attempt));
+    }
   }
 
-  return fetch(input, {
-    ...init,
-    headers: createAsuraHeaders(init.headers, includeOrigin),
-  });
+  throw lastError instanceof Error ? lastError : new Error("Request failed after retries.");
+}
+
+function shouldRetryResponse(response: Response): boolean {
+  return [408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524].includes(response.status);
+}
+
+function getRetryDelayMs(attempt: number): number {
+  return RETRY_BASE_DELAY_MS * 2 ** attempt;
 }
 
 export async function requestJson<T>(

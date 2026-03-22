@@ -14,10 +14,12 @@
   "dependencies": {
     "cheerio": "^1.0.0",
     "p-limit": "^6.2.0",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/yazl": "^3.3.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

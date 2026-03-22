@@ -146,6 +146,11 @@ export async function resolveSeries(input: string): Promise<SeriesRef> {
   try {
     return await getSeriesDetails(candidate);
   } catch (error) {
+    const fallback = await tryResolveSeriesFromSearch(candidate);
+    if (fallback) {
+      return fallback;
+    }
+
     throw new Error(
       `Unable to resolve "${input}" to an Asura series. ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -167,4 +172,18 @@ function buildSearchVariants(query: string): string[] {
   }
 
   return [...variants].filter(Boolean);
+}
+
+async function tryResolveSeriesFromSearch(candidate: string): Promise<SeriesRef | undefined> {
+  const normalizedCandidate = candidate.trim().toLowerCase();
+  const search = await searchSeries(candidate, 0, 10);
+
+  return search.results.find((series) => {
+    const normalizedTitle = series.title.toLowerCase().replace(/\s+/g, "-");
+    return (
+      series.apiSlug.toLowerCase() === normalizedCandidate ||
+      series.publicSlug.toLowerCase() === normalizedCandidate ||
+      normalizedTitle === normalizedCandidate
+    );
+  });
 }

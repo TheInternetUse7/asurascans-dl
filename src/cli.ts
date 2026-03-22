@@ -2,28 +2,77 @@
 
 import path from "node:path";
 import { resolveSeries, searchSeries } from "./api.js";
+import { createChapterCbz } from "./archive.js";
+import { fetchAllSeriesCatalog, readCatalogFile, selectCatalogSeries, writeCatalogFile } from "./catalog.js";
+import { normalizeParsedArgs, parseArgs } from "./cli-options.js";
 import { downloadChapter } from "./downloader.js";
+import { getChapterDir, writeChapterMetadata, writeSeriesMetadata } from "./metadata.js";
 import { PremiumChapterError, fetchChapterList, fetchChapterPages } from "./scraper.js";
 import { selectChapters } from "./selection.js";
+import {
+  getCompletedSeriesSet,
+  getDefaultStatePath,
+  loadStateFile,
+  saveStateFile,
+  updateSeriesState,
+} from "./tracking.js";
+import type { TrackedChapterResult } from "./tracking.js";
 import type { PremiumAuth, SChapter, SeriesRef } from "./types.js";
-
-interface ParsedArgs {
-  command?: string;
-  positionals: string[];
-  options: Record<string, string | boolean>;
-}
 
 interface DownloadSummary {
   downloadedChapters: number;
   skippedChapters: number;
   failedChapters: number;
+  plannedChapters: number;
   downloadedPages: number;
   skippedPages: number;
   failedPages: number;
+  plannedPages: number;
+  cbzCreated: number;
 }
 
-const CHAPTER_SELECTOR_PATTERN =
-  /^(all|latest|\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?(?:\s*,\s*\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)*)$/i;
+interface DownloadRuntimeOptions {
+  outputDir: string;
+  concurrency: number;
+  dryRun: boolean;
+  writeCbz: boolean;
+  overwrite: boolean;
+  auth: PremiumAuth;
+  chaptersSelector?: string;
+}
+
+interface SeriesExecutionResult {
+  chapters: SChapter[];
+  selected: SChapter[];
+  chapterResults: TrackedChapterResult[];
+  summary: DownloadSummary;
+}
+
+function createEmptySummary(): DownloadSummary {
+  return {
+    downloadedChapters: 0,
+    skippedChapters: 0,
+    failedChapters: 0,
+    plannedChapters: 0,
+    downloadedPages: 0,
+    skippedPages: 0,
+    failedPages: 0,
+    plannedPages: 0,
+    cbzCreated: 0,
+  };
+}
+
+function addSummary(target: DownloadSummary, source: DownloadSummary): void {
+  target.downloadedChapters += source.downloadedChapters;
+  target.skippedChapters += source.skippedChapters;
+  target.failedChapters += source.failedChapters;
+  target.plannedChapters += source.plannedChapters;
+  target.downloadedPages += source.downloadedPages;
+  target.skippedPages += source.skippedPages;
+  target.failedPages += source.failedPages;
+  target.plannedPages += source.plannedPages;
+  target.cbzCreated += source.cbzCreated;
+}
 
 function printHelp(): void {
   console.log(`Asura Scans downloader
@@ -31,116 +80,18 @@ function printHelp(): void {
 Usage:
   asurascan-dl search <query>
   asurascan-dl info <slug-or-url>
-  asurascan-dl download <slug-or-url> [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite]
+  asurascan-dl download <slug-or-url> [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
+  asurascan-dl catalog export [--output <file>]
+  asurascan-dl catalog download <catalog-file> [--series <selector>] [--state <file>] [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
 
 Examples:
   asurascan-dl search "iron-blooded"
   asurascan-dl info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
   asurascan-dl download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --output downloads
+  asurascan-dl download revenge-of-the-iron-blooded-sword-hound --chapters latest-public --dry-run
+  asurascan-dl catalog export --output _internal/asura-catalog.json
+  asurascan-dl catalog download _internal/asura-catalog.json --series pending --chapters latest-public
 `);
-}
-
-function parseArgs(argv: string[]): ParsedArgs {
-  const [command, ...rest] = argv;
-  const positionals: string[] = [];
-  const options: Record<string, string | boolean> = {};
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const token = rest[index];
-
-    if (!token.startsWith("--")) {
-      positionals.push(token);
-      continue;
-    }
-
-    const name = token.slice(2);
-
-    if (name === "overwrite") {
-      options[name] = true;
-      continue;
-    }
-
-    const value = rest[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new Error(`Option --${name} requires a value.`);
-    }
-
-    options[name] = value;
-    index += 1;
-  }
-
-  return {
-    command,
-    positionals,
-    options,
-  };
-}
-
-function readBooleanEnv(name: string): boolean | undefined {
-  const value = process.env[name];
-  if (value === undefined) {
-    return undefined;
-  }
-
-  return value === "" || value === "true" || value === "1";
-}
-
-function mergeNpmConfigOptions(options: Record<string, string | boolean>): Record<string, string | boolean> {
-  const merged = { ...options };
-  const envOptions: Array<[string, string]> = [
-    ["chapters", "npm_config_chapters"],
-    ["output", "npm_config_output"],
-    ["concurrency", "npm_config_concurrency"],
-    ["cookie", "npm_config_cookie"],
-  ];
-
-  for (const [optionName, envName] of envOptions) {
-    if (merged[optionName] === undefined && process.env[envName]) {
-      merged[optionName] = process.env[envName] as string;
-    }
-  }
-
-  if (merged.overwrite === undefined) {
-    const overwrite = readBooleanEnv("npm_config_overwrite");
-    if (overwrite !== undefined) {
-      merged.overwrite = overwrite;
-    }
-  }
-
-  return merged;
-}
-
-function normalizeParsedArgs(parsed: ParsedArgs): ParsedArgs {
-  const options = mergeNpmConfigOptions(parsed.options);
-  const positionals = [...parsed.positionals];
-
-  if (parsed.command === "download" && positionals.length > 1) {
-    const [seriesInput, ...extras] = positionals;
-
-    if (options.chapters === undefined && extras[0] && CHAPTER_SELECTOR_PATTERN.test(extras[0])) {
-      options.chapters = extras.shift() as string;
-    }
-
-    if (options.output === undefined && extras[0]) {
-      options.output = extras.shift() as string;
-    }
-
-    if (options.concurrency === undefined && extras[0] && /^\d+$/.test(extras[0])) {
-      options.concurrency = extras.shift() as string;
-    }
-
-    return {
-      ...parsed,
-      positionals: [seriesInput],
-      options,
-    };
-  }
-
-  return {
-    ...parsed,
-    options,
-    positionals,
-  };
 }
 
 function formatChapterTitle(chapter: SChapter): string {
@@ -153,7 +104,6 @@ function parsePremiumAuth(cookieHeader?: string): PremiumAuth {
     return { enabled: false };
   }
 
-  // Reuse a browser-exported Cookie header instead of implementing account login in the CLI.
   const accessToken = trimmed
     .split(";")
     .map((entry) => entry.trim())
@@ -168,13 +118,7 @@ function parsePremiumAuth(cookieHeader?: string): PremiumAuth {
 }
 
 function getDefaultDownloadSelection(chapters: SChapter[], auth: PremiumAuth): SChapter[] {
-  const source = auth.enabled ? chapters : chapters.filter((chapter) => !chapter.isLocked);
-
-  if (source.length === 0) {
-    return [];
-  }
-
-  return selectChapters(source, "latest");
+  return selectChapters(chapters, auth.enabled ? "latest" : "latest-public");
 }
 
 function classifyChapterResult(result: {
@@ -205,6 +149,203 @@ function printSeries(series: SeriesRef): void {
   console.log(`Artist: ${series.artist || "unknown"}`);
   console.log(`Chapters: ${series.chapterCount}`);
   console.log(`Genres: ${series.genres.join(", ") || "none"}`);
+}
+
+function buildRuntimeOptions(options: Record<string, string | boolean>): DownloadRuntimeOptions {
+  const outputDir = path.resolve(
+    typeof options.output === "string" ? options.output : path.join(process.cwd(), "downloads"),
+  );
+  const concurrency = typeof options.concurrency === "string" ? Number(options.concurrency) : 5;
+
+  if (!Number.isFinite(concurrency) || concurrency <= 0) {
+    throw new Error("--concurrency must be a positive number.");
+  }
+
+  return {
+    outputDir,
+    concurrency,
+    dryRun: options["dry-run"] === true,
+    writeCbz: options.cbz === true,
+    overwrite: options.overwrite === true,
+    auth: parsePremiumAuth(typeof options.cookie === "string" ? options.cookie : undefined),
+    chaptersSelector: typeof options.chapters === "string" ? options.chapters : undefined,
+  };
+}
+
+async function executeSeriesDownload(
+  series: SeriesRef,
+  runtime: DownloadRuntimeOptions,
+): Promise<SeriesExecutionResult> {
+  const chapters = await fetchChapterList(series);
+  const selected = runtime.chaptersSelector
+    ? selectChapters(chapters, runtime.chaptersSelector)
+    : getDefaultDownloadSelection(chapters, runtime.auth);
+
+  if (selected.length === 0) {
+    throw new Error("No chapters matched the requested selector.");
+  }
+
+  const summary = createEmptySummary();
+  const chapterResults: TrackedChapterResult[] = [];
+
+  if (!runtime.dryRun) {
+    await writeSeriesMetadata(runtime.outputDir, series, chapters);
+  }
+
+  console.log(`Series: ${series.title}`);
+  console.log(`Output: ${runtime.outputDir}`);
+  console.log(`Requested chapters: ${selected.map((chapter) => chapter.numberText).join(", ")}`);
+  if (runtime.dryRun) {
+    console.log("Dry run: no files will be written.");
+  } else {
+    console.log("Series metadata: series.json");
+  }
+  if (runtime.writeCbz) {
+    console.log(`CBZ output: ${runtime.dryRun ? "planned" : "enabled"}`);
+  }
+
+  for (const chapter of selected) {
+    if (chapter.isLocked && !runtime.auth.enabled) {
+      summary.skippedChapters += 1;
+      console.log(`Skipping Chapter ${chapter.numberText}: locked and no access_token cookie was provided.`);
+      chapterResults.push({
+        chapter,
+        status: "skipped",
+        downloadedPages: 0,
+        skippedPages: 0,
+        failedPages: 0,
+        note: "locked without access token",
+      });
+      continue;
+    }
+
+    try {
+      const { pages, usedPremium } = await fetchChapterPages(series, chapter, runtime.auth);
+      const chapterLabel = runtime.dryRun ? "Planned" : "Downloading";
+      console.log(`${chapterLabel} Chapter ${chapter.numberText} (${pages.length} pages${usedPremium ? ", premium" : ""})`);
+
+      if (runtime.dryRun) {
+        summary.plannedChapters += 1;
+        summary.plannedPages += pages.length;
+        if (runtime.writeCbz) {
+          summary.cbzCreated += 1;
+        }
+        chapterResults.push({
+          chapter,
+          status: "planned",
+          downloadedPages: 0,
+          skippedPages: 0,
+          failedPages: 0,
+          usedPremium,
+          note: `planned ${pages.length} page download`,
+        });
+        continue;
+      }
+
+      const result = await downloadChapter(series.title, chapter.numberText, pages, {
+        outputDir: runtime.outputDir,
+        concurrency: runtime.concurrency,
+        overwrite: runtime.overwrite,
+        onProgress: (event) => {
+          if (event.status === "failed") {
+            console.error(
+              `  page ${event.page}/${event.total} failed for Chapter ${event.chapter}: ${event.error}`,
+            );
+          }
+        },
+      });
+
+      summary.downloadedPages += result.downloadedPages;
+      summary.skippedPages += result.skippedPages;
+      summary.failedPages += result.failedPages;
+
+      const chapterStatus = classifyChapterResult(result);
+      if (chapterStatus === "downloaded") {
+        summary.downloadedChapters += 1;
+      } else if (chapterStatus === "skipped") {
+        summary.skippedChapters += 1;
+      } else {
+        summary.failedChapters += 1;
+      }
+
+      let cbzPath: string | undefined;
+      await writeChapterMetadata(runtime.outputDir, series, chapter, usedPremium, result);
+
+      if (runtime.writeCbz) {
+        const chapterDir = getChapterDir(runtime.outputDir, series, chapter.numberText);
+        cbzPath = await createChapterCbz(chapterDir);
+        summary.cbzCreated += 1;
+        console.log(`Created CBZ: ${cbzPath}`);
+      }
+
+      chapterResults.push({
+        chapter,
+        status: chapterStatus,
+        downloadedPages: result.downloadedPages,
+        skippedPages: result.skippedPages,
+        failedPages: result.failedPages,
+        usedPremium,
+        outputDir: result.chapterDir,
+        cbzPath,
+      });
+
+      console.log(
+        `Saved Chapter ${chapter.numberText} to ${result.chapterDir} (${result.downloadedPages} downloaded, ${result.skippedPages} skipped, ${result.failedPages} failed)`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (error instanceof PremiumChapterError && !runtime.auth.enabled) {
+        summary.skippedChapters += 1;
+        console.log(`Skipping Chapter ${chapter.numberText}: premium access is required.`);
+        chapterResults.push({
+          chapter,
+          status: "skipped",
+          downloadedPages: 0,
+          skippedPages: 0,
+          failedPages: 0,
+          note: message,
+        });
+        continue;
+      }
+
+      summary.failedChapters += 1;
+      console.error(`Failed to download Chapter ${chapter.numberText}: ${message}`);
+      chapterResults.push({
+        chapter,
+        status: "failed",
+        downloadedPages: 0,
+        skippedPages: 0,
+        failedPages: 0,
+        note: message,
+      });
+    }
+  }
+
+  console.log("");
+  console.log("Summary");
+  console.log(`  chapters downloaded: ${summary.downloadedChapters}`);
+  console.log(`  chapters skipped: ${summary.skippedChapters}`);
+  console.log(`  chapters failed: ${summary.failedChapters}`);
+  if (runtime.dryRun) {
+    console.log(`  chapters planned: ${summary.plannedChapters}`);
+  }
+  console.log(`  pages downloaded: ${summary.downloadedPages}`);
+  console.log(`  pages skipped: ${summary.skippedPages}`);
+  console.log(`  pages failed: ${summary.failedPages}`);
+  if (runtime.dryRun) {
+    console.log(`  pages planned: ${summary.plannedPages}`);
+  }
+  if (runtime.writeCbz) {
+    console.log(`  cbz created: ${summary.cbzCreated}`);
+  }
+
+  return {
+    chapters,
+    selected,
+    chapterResults,
+    summary,
+  };
 }
 
 async function handleSearch(queryParts: string[]): Promise<void> {
@@ -250,103 +391,78 @@ async function handleInfo(input: string): Promise<void> {
 
 async function handleDownload(input: string, options: Record<string, string | boolean>): Promise<void> {
   const series = await resolveSeries(input);
-  const chapters = await fetchChapterList(series);
-  const auth = parsePremiumAuth(typeof options.cookie === "string" ? options.cookie : undefined);
-  const selected =
-    typeof options.chapters === "string"
-      ? selectChapters(chapters, options.chapters)
-      : getDefaultDownloadSelection(chapters, auth);
+  const runtime = buildRuntimeOptions(options);
+  await executeSeriesDownload(series, runtime);
+}
 
-  if (selected.length === 0) {
-    throw new Error("No chapters matched the requested selector.");
-  }
+async function handleCatalogExport(options: Record<string, string | boolean>): Promise<void> {
+  const outputPath =
+    typeof options.output === "string" ? options.output : path.join(process.cwd(), "asura-catalog.json");
+  const catalog = await fetchAllSeriesCatalog();
+  const writtenPath = await writeCatalogFile(outputPath, catalog);
 
-  const outputDir = path.resolve(
-    typeof options.output === "string" ? options.output : path.join(process.cwd(), "downloads"),
+  console.log(`Catalog written: ${writtenPath}`);
+  console.log(`Series exported: ${catalog.series.length}`);
+}
+
+async function handleCatalogDownload(
+  catalogPath: string,
+  options: Record<string, string | boolean>,
+): Promise<void> {
+  const catalog = await readCatalogFile(catalogPath);
+  const statePath = typeof options.state === "string" ? path.resolve(options.state) : getDefaultStatePath(catalogPath);
+  const state = await loadStateFile(statePath);
+  const runtime = buildRuntimeOptions(options);
+  const selectedSeries = selectCatalogSeries(
+    catalog,
+    typeof options.series === "string" ? options.series : undefined,
+    getCompletedSeriesSet(state),
   );
-  const concurrency = typeof options.concurrency === "string" ? Number(options.concurrency) : 5;
 
-  if (!Number.isFinite(concurrency) || concurrency <= 0) {
-    throw new Error("--concurrency must be a positive number.");
+  if (selectedSeries.length === 0) {
+    console.log("No series matched the catalog selector.");
+    return;
   }
 
-  const summary: DownloadSummary = {
-    downloadedChapters: 0,
-    skippedChapters: 0,
-    failedChapters: 0,
-    downloadedPages: 0,
-    skippedPages: 0,
-    failedPages: 0,
-  };
+  const aggregate = createEmptySummary();
+  console.log(`Catalog: ${path.resolve(catalogPath)}`);
+  console.log(`Tracking state: ${statePath}`);
+  console.log(`Series selected: ${selectedSeries.length}`);
 
-  console.log(`Series: ${series.title}`);
-  console.log(`Output: ${outputDir}`);
-  console.log(`Requested chapters: ${selected.map((chapter) => chapter.numberText).join(", ")}`);
+  for (const [index, series] of selectedSeries.entries()) {
+    console.log("");
+    console.log(`[${index + 1}/${selectedSeries.length}] ${series.title}`);
 
-  for (const chapter of selected) {
-    if (chapter.isLocked && !auth.enabled) {
-      summary.skippedChapters += 1;
-      console.log(`Skipping Chapter ${chapter.numberText}: locked and no access_token cookie was provided.`);
-      continue;
-    }
+    const result = await executeSeriesDownload(series, runtime);
+    addSummary(aggregate, result.summary);
 
-    try {
-      const { pages, usedPremium } = await fetchChapterPages(series, chapter, auth);
-      console.log(
-        `Downloading Chapter ${chapter.numberText} (${pages.length} pages${usedPremium ? ", premium" : ""})`,
-      );
-
-      const result = await downloadChapter(series.title, chapter.numberText, pages, {
-        outputDir,
-        concurrency,
-        overwrite: options.overwrite === true,
-        onProgress: (event) => {
-          if (event.status === "failed") {
-            console.error(
-              `  page ${event.page}/${event.total} failed for Chapter ${event.chapter}: ${event.error}`,
-            );
-          }
-        },
-      });
-
-      summary.downloadedPages += result.downloadedPages;
-      summary.skippedPages += result.skippedPages;
-      summary.failedPages += result.failedPages;
-
-      const chapterStatus = classifyChapterResult(result);
-      if (chapterStatus === "downloaded") {
-        summary.downloadedChapters += 1;
-      } else if (chapterStatus === "skipped") {
-        summary.skippedChapters += 1;
-      } else {
-        summary.failedChapters += 1;
-      }
-
-      console.log(
-        `Saved Chapter ${chapter.numberText} to ${result.chapterDir} (${result.downloadedPages} downloaded, ${result.skippedPages} skipped, ${result.failedPages} failed)`,
-      );
-    } catch (error) {
-      if (error instanceof PremiumChapterError && !auth.enabled) {
-        summary.skippedChapters += 1;
-        console.log(`Skipping Chapter ${chapter.numberText}: premium access is required.`);
-        continue;
-      }
-
-      summary.failedChapters += 1;
-      console.error(
-        `Failed to download Chapter ${chapter.numberText}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    if (!runtime.dryRun) {
+      updateSeriesState(state, series, result.chapters, result.chapterResults, catalogPath);
+      await saveStateFile(statePath, state);
     }
   }
 
   console.log("");
-  console.log("Summary");
-  console.log(`  chapters downloaded: ${summary.downloadedChapters}`);
-  console.log(`  chapters skipped: ${summary.skippedChapters}`);
-  console.log(`  chapters failed: ${summary.failedChapters}`);
-  console.log(`  pages downloaded: ${summary.downloadedPages}`);
-  console.log(`  pages skipped: ${summary.skippedPages}`);
-  console.log(`  pages failed: ${summary.failedPages}`);
+  console.log("Catalog Summary");
+  console.log(`  series processed: ${selectedSeries.length}`);
+  console.log(`  chapters downloaded: ${aggregate.downloadedChapters}`);
+  console.log(`  chapters skipped: ${aggregate.skippedChapters}`);
+  console.log(`  chapters failed: ${aggregate.failedChapters}`);
+  if (runtime.dryRun) {
+    console.log(`  chapters planned: ${aggregate.plannedChapters}`);
+  }
+  console.log(`  pages downloaded: ${aggregate.downloadedPages}`);
+  console.log(`  pages skipped: ${aggregate.skippedPages}`);
+  console.log(`  pages failed: ${aggregate.failedPages}`);
+  if (runtime.dryRun) {
+    console.log(`  pages planned: ${aggregate.plannedPages}`);
+  }
+  if (runtime.writeCbz) {
+    console.log(`  cbz created: ${aggregate.cbzCreated}`);
+  }
+  if (!runtime.dryRun) {
+    console.log(`State updated: ${statePath}`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -373,6 +489,25 @@ async function main(): Promise<void> {
       }
       await handleDownload(parsed.positionals[0], parsed.options);
       return;
+    case "catalog":
+      if (parsed.positionals.length === 0) {
+        throw new Error("catalog requires a subcommand: export or download.");
+      }
+
+      if (parsed.positionals[0] === "export") {
+        await handleCatalogExport(parsed.options);
+        return;
+      }
+
+      if (parsed.positionals[0] === "download") {
+        if (!parsed.positionals[1]) {
+          throw new Error("catalog download requires a catalog file path.");
+        }
+        await handleCatalogDownload(parsed.positionals[1], parsed.options);
+        return;
+      }
+
+      throw new Error(`Unknown catalog subcommand: ${parsed.positionals[0]}`);
     default:
       throw new Error(`Unknown command: ${parsed.command}`);
   }

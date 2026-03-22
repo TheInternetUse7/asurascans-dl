@@ -90,6 +90,48 @@ export interface SeriesRef {
   type: string;
 }
 
+export interface CatalogFile {
+  version: 1;
+  generatedAt: string;
+  source: {
+    site: string;
+    apiBaseUrl: string;
+    totalSeries: number;
+  };
+  series: SeriesRef[];
+}
+
+export interface DownloadStateFile {
+  version: 1;
+  updatedAt: string;
+  catalogPath?: string;
+  series: Record<string, SeriesDownloadState>;
+}
+
+export interface SeriesDownloadState {
+  title: string;
+  apiSlug: string;
+  publicSlug: string;
+  status: "pending" | "partial" | "complete" | "failed";
+  knownChapterCount: number;
+  downloadedChapterCount: number;
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
+  chapters: Record<string, ChapterDownloadState>;
+}
+
+export interface ChapterDownloadState {
+  status: "downloaded" | "skipped" | "failed" | "planned";
+  outputDir?: string;
+  cbzPath?: string;
+  downloadedPages: number;
+  skippedPages: number;
+  failedPages: number;
+  usedPremium?: boolean;
+  updatedAt: string;
+  note?: string;
+}
+
 export interface PremiumAuth {
   cookieHeader?: string;
   accessToken?: string;
@@ -119,4 +161,52 @@ export interface SPage {
   tiles?: number[];
   tileCols?: number;
   tileRows?: number;
+}
+
+export interface ChapterMetadata {
+  series: {
+    title: string;
+    apiSlug: string;
+    publicSlug: string;
+    url: string;
+  };
+  chapter: {
+    number: string;
+    title: string;
+    url: string;
+    createdAt: string;
+    isLocked: boolean;
+    usedPremium: boolean;
+  };
+  pages: {
+    total: number;
+    downloaded: number;
+    skipped: number;
+    failed: number;
+  };
+  generatedAt: string;
+}
+
+export interface SeriesMetadata {
+  series: {
+    title: string;
+    apiSlug: string;
+    publicSlug: string;
+    url: string;
+    author: string;
+    artist: string;
+    description: string;
+    cover: string;
+    status: string;
+    type: string;
+    genres: string[];
+    chapterCount: number;
+  };
+  chapters: {
+    total: number;
+    public: number;
+    locked: number;
+    latest?: string;
+  };
+  generatedAt: string;
 }

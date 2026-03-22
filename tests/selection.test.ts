@@ -36,18 +36,28 @@ const chapters: SChapter[] = [
     numberText: "154",
     title: "",
     createdAt: "",
-    isLocked: false,
+    isLocked: true,
     seriesSlug: "series-api",
     url: "/series/series-api/chapter/154",
+  },
+  {
+    number: 153,
+    numberText: "153",
+    title: "",
+    createdAt: "",
+    isLocked: false,
+    seriesSlug: "series-api",
+    url: "/series/series-api/chapter/153",
   },
 ];
 
 test("selectChapters handles all and latest selectors", () => {
   assert.deepEqual(
     selectChapters(chapters, "all").map((chapter) => chapter.numberText),
-    ["150", "151", "152.5", "154"],
+    ["150", "151", "152.5", "153", "154"],
   );
   assert.deepEqual(selectChapters(chapters, "latest").map((chapter) => chapter.numberText), ["154"]);
+  assert.deepEqual(selectChapters(chapters, "latest-public").map((chapter) => chapter.numberText), ["153"]);
 });
 
 test("selectChapters handles ranges and mixed selectors", () => {

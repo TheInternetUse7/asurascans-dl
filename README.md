@@ -14,9 +14,11 @@ This implementation mirrors the Mihon/Tachiyomi extension approach:
 - `search <query>` to find series
 - `info <slug-or-url>` to inspect a series and count public vs locked chapters
 - `download <slug-or-url>` to download selected chapters
-- chapter selectors: `all`, `latest`, single chapter, comma-separated list, or inclusive ranges like `150-154`
+- chapter selectors: `all`, `latest`, `latest-public`, single chapter, comma-separated list, or inclusive ranges like `150-154`
 - resume behavior by skipping files that already exist unless `--overwrite` is set
 - raw image output organized by manga title and chapter
+- optional CBZ packaging for downloaded chapters
+- optional dry-run mode to preview downloads without writing files
 
 ## Requirements
 
@@ -41,6 +43,13 @@ Or with the npm aliases:
 
 ```bash
 npm run dev -- <command>
+```
+
+Catalog commands:
+
+```bash
+npm run dev -- catalog export --output _internal/asura-catalog.json
+npm run dev -- catalog download _internal/asura-catalog.json --series pending --chapters latest-public
 ```
 
 ### Search
@@ -69,6 +78,12 @@ Download the latest chapter:
 npm run dev -- download revenge-of-the-iron-blooded-sword-hound
 ```
 
+Download the latest public chapter explicitly:
+
+```bash
+npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters latest-public
+```
+
 Download a range:
 
 ```bash
@@ -91,6 +106,38 @@ Control image download concurrency:
 
 ```bash
 npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 154 --concurrency 8
+```
+
+Preview the chapter resolution without writing files:
+
+```bash
+npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --dry-run
+```
+
+Create a CBZ alongside the chapter folder:
+
+```bash
+npm run dev -- download revenge-of-the-iron-blooded-sword-hound --chapters 154 --cbz
+```
+
+### Catalog Snapshot And Tracking
+
+Export the full site catalog to JSON:
+
+```bash
+npm run dev -- catalog export --output _internal/asura-catalog.json
+```
+
+Download from a catalog snapshot:
+
+```bash
+npm run dev -- catalog download _internal/asura-catalog.json --series all --chapters latest-public
+```
+
+Download only series that are not yet marked complete in the tracking state:
+
+```bash
+npm run dev -- catalog download _internal/asura-catalog.json --series pending --chapters all
 ```
 
 ## Premium Chapters
@@ -124,6 +171,11 @@ downloads/Revenge of the Iron-Blooded Sword Hound/Chapter 154/001.webp
 ```
 
 Direct image pages keep their original extension when possible. Reconstructed tiled pages are written as `.webp`.
+Each downloaded chapter also gets a `chapter.json` file with source and result metadata.
+Each series directory gets a `series.json` file with normalized series metadata and chapter counts.
+If `--cbz` is enabled, each chapter folder also gets a sibling `.cbz` archive containing only page images.
+Catalog exports are written as standalone snapshot JSON files.
+Catalog-driven downloads keep progress in a separate `.state.json` file so the snapshot stays immutable.
 
 ## Development
 

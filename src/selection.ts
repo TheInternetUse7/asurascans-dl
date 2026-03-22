@@ -23,6 +23,13 @@ export function selectChapters(chapters: SChapter[], selector: string): SChapter
     return latest ? [latest] : [];
   }
 
+  if (trimmed === "latest-public") {
+    return selectChapters(
+      chapters.filter((chapter) => !chapter.isLocked),
+      "latest",
+    );
+  }
+
   const selected = new Map<string, SChapter>();
 
   for (const token of selector.split(",").map((part) => part.trim()).filter(Boolean)) {
