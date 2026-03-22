@@ -28,6 +28,7 @@ import {
 import type { TrackedChapterResult } from "./tracking.js";
 import type { DownloadSessionSummary, SessionSummaryTotals } from "./types.js";
 import type { PremiumAuth, SChapter, SeriesRef } from "./types.js";
+import { CLI_NAME, CLI_VERSION } from "./version.js";
 
 interface DownloadSummary {
   downloadedChapters: number;
@@ -133,23 +134,31 @@ function createChapterProgressReporter(
 }
 
 function printHelp(): void {
-  console.log(`Asura Scans downloader
+  console.log(`${CLI_NAME} ${CLI_VERSION}
+
+Asura Scans downloader
 
 Usage:
-  asurascans-dl search <query>
-  asurascans-dl info <slug-or-url>
-  asurascans-dl download <slug-or-url> [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
-  asurascans-dl catalog export [--output <file>]
-  asurascans-dl catalog download <catalog-file> [--series <selector>] [--state <file>] [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
+  ${CLI_NAME} --help
+  ${CLI_NAME} --version
+  ${CLI_NAME} search <query>
+  ${CLI_NAME} info <slug-or-url>
+  ${CLI_NAME} download <slug-or-url> [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
+  ${CLI_NAME} catalog export [--output <file>]
+  ${CLI_NAME} catalog download <catalog-file> [--series <selector>] [--state <file>] [--chapters <selector>] [--output <dir>] [--concurrency <n>] [--cookie <header>] [--overwrite] [--dry-run] [--cbz]
 
 Examples:
-  asurascans-dl search "iron-blooded"
-  asurascans-dl info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
-  asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --output downloads
-  asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters latest-public --dry-run
-  asurascans-dl catalog export --output asura-catalog.json
-  asurascans-dl catalog download asura-catalog.json --series pending --chapters latest-public
+  ${CLI_NAME} search "iron-blooded"
+  ${CLI_NAME} info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
+  ${CLI_NAME} download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --output downloads
+  ${CLI_NAME} download revenge-of-the-iron-blooded-sword-hound --chapters latest-public --dry-run
+  ${CLI_NAME} catalog export --output asura-catalog.json
+  ${CLI_NAME} catalog download asura-catalog.json --series pending --chapters latest-public
 `);
+}
+
+function printVersion(): void {
+  console.log(CLI_VERSION);
 }
 
 function formatChapterTitle(chapter: SChapter): string {
@@ -680,8 +689,18 @@ async function handleCatalogDownload(
 async function main(): Promise<void> {
   const parsed = normalizeParsedArgs(parseArgs(process.argv.slice(2)));
 
-  if (!parsed.command || parsed.command === "help" || parsed.command === "--help") {
+  if (
+    !parsed.command
+    || parsed.command === "help"
+    || parsed.command === "--help"
+    || parsed.command === "-h"
+  ) {
     printHelp();
+    return;
+  }
+
+  if (parsed.command === "--version" || parsed.command === "-v" || parsed.command === "version") {
+    printVersion();
     return;
   }
 

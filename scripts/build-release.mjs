@@ -13,6 +13,7 @@ const sourceDir = path.join(repoRoot, "src");
 const stagingRoot = path.join(repoRoot, "dist", "bun-release-src");
 const stagingSourceDir = path.join(stagingRoot, "src");
 const releaseDir = path.join(repoRoot, "dist", "releases");
+let packageJson;
 
 function toPosixPath(filePath) {
   return filePath.split(path.sep).join("/");
@@ -201,6 +202,10 @@ async function stageReleaseSource(packageFiles) {
 }
 
 function runBunBuild(entryPoint, target, artifactPath) {
+  const versionSegments = packageJson.version.split(".");
+  const windowsVersion = [0, 1, 2, 3]
+    .map((index) => Number.parseInt(versionSegments[index] ?? "0", 10) || 0)
+    .join(".");
   const args = [
     "build",
     entryPoint,
@@ -212,7 +217,7 @@ function runBunBuild(entryPoint, target, artifactPath) {
   if (target.startsWith("bun-windows-")) {
     args.push("--windows-hide-console");
     args.push(`--windows-title=asurascans-dl`);
-    args.push(`--windows-version=1.0.0.0`);
+    args.push(`--windows-version=${windowsVersion}`);
     args.push(`--windows-description=Asura Scans downloader`);
   }
 
@@ -228,6 +233,7 @@ function runBunBuild(entryPoint, target, artifactPath) {
 
 async function main() {
   assertBunInstalled();
+  packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
 
   const collectedFiles = new Set();
   await collectInstalledPackageFiles("sharp", new Set(), collectedFiles);

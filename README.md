@@ -1,217 +1,331 @@
 # asurascans-dl
 
-CLI tool to search, inspect, and download manhwa chapters from [Asura Scans](https://asurascans.com/).
+CLI downloader for [Asura Scans](https://asurascans.com/).
 
-This implementation mirrors the Mihon/Tachiyomi extension approach:
+It mirrors the Mihon/Tachiyomi extension approach:
 
-- series search and metadata come from `https://api.asurascans.com/api/series`
-- chapter lists and public page lists are extracted from Astro props in the website HTML
+- series search and details come from `https://api.asurascans.com/api/series`
+- chapter lists and page lists come from Astro props embedded in the website HTML
 - premium chapters can be fetched with a user-supplied `access_token` cookie
-- scrambled page images are reconstructed with the same tile-mapping direction used by the extension
-
-## Features
-
-- `search <query>` to find series
-- `info <slug-or-url>` to inspect a series and count public vs locked chapters
-- `download <slug-or-url>` to download selected chapters
-- chapter selectors: `all`, `latest`, `latest-public`, single chapter, comma-separated list, or inclusive ranges like `150-154`
-- resume behavior by skipping files that already exist unless `--overwrite` is set
-- raw image output organized by manga title and chapter
-- optional CBZ packaging for downloaded chapters
-- optional dry-run mode to preview downloads without writing files
-
-## Requirements
-
-- Bun 1.3.11+
+- scrambled pages are reconstructed with the same tile-mapping direction used by the extension
 
 ## Install
+
+### Latest release
+
+Latest release page:
+
+- [github.com/TheInternetUse7/asurascans-dl/releases/latest](https://github.com/TheInternetUse7/asurascans-dl/releases/latest)
+
+Direct latest binaries:
+
+- Windows x64:
+  [asurascans-dl-windows-x64.exe](https://github.com/TheInternetUse7/asurascans-dl/releases/latest/download/asurascans-dl-windows-x64.exe)
+- Linux x64:
+  [asurascans-dl-linux-x64](https://github.com/TheInternetUse7/asurascans-dl/releases/latest/download/asurascans-dl-linux-x64)
+
+### Windows
+
+1. Download `asurascans-dl-windows-x64.exe`.
+2. Rename it to `asurascans-dl.exe` if you want a shorter command.
+3. Put it in a folder you keep for local tools, for example `C:\Tools\asurascans-dl\`.
+4. Add that folder to your `PATH` if it is not already there.
+5. Open a new terminal and run:
+
+```powershell
+asurascans-dl --version
+asurascans-dl --help
+```
+
+### Linux
+
+1. Download `asurascans-dl-linux-x64`.
+2. Rename it to `asurascans-dl` if you want a shorter command.
+3. Mark it executable:
+
+```bash
+chmod +x asurascans-dl
+```
+
+4. Move it into a directory on your `PATH`, for example:
+
+```bash
+mkdir -p ~/.local/bin
+mv asurascans-dl ~/.local/bin/asurascans-dl
+```
+
+5. Make sure `~/.local/bin` is on your `PATH`, then run:
+
+```bash
+asurascans-dl --version
+asurascans-dl --help
+```
+
+## CLI
+
+Global commands:
+
+```text
+asurascans-dl --help
+asurascans-dl --version
+```
+
+Main commands:
+
+```text
+asurascans-dl search <query>
+asurascans-dl info <slug-or-url>
+asurascans-dl download <slug-or-url> [options]
+asurascans-dl catalog export [options]
+asurascans-dl catalog download <catalog-file> [options]
+```
+
+## Functionality
+
+### `search`
+
+Find a series by title or slug-like query.
+
+```bash
+asurascans-dl search "iron-blooded"
+asurascans-dl search "iron blooded"
+```
+
+Output includes:
+
+- title
+- API slug
+- public slug
+- status
+- chapter count
+
+### `info`
+
+Inspect a series and resolve identifiers.
+
+Accepted inputs:
+
+- API slug
+- public slug
+- full Asura URL
+
+Examples:
+
+```bash
+asurascans-dl info revenge-of-the-iron-blooded-sword-hound
+asurascans-dl info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
+```
+
+Output includes:
+
+- normalized API/public slugs
+- canonical URL
+- author / artist / status / type / genres
+- total chapters
+- public chapter count
+- locked chapter count
+- latest chapter
+
+### `download`
+
+Download one series directly from a slug or URL.
+
+Examples:
+
+```bash
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters latest-public
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 150-154
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 152,154 --output downloads
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 154 --overwrite
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 154 --concurrency 4
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --dry-run
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 154 --cbz
+```
+
+Options:
+
+- `--chapters <selector>`
+- `--output <dir>`
+- `--concurrency <n>`
+- `--cookie <header>`
+- `--overwrite`
+- `--dry-run`
+- `--cbz`
+
+### Chapter selectors
+
+Supported selectors:
+
+- `all`
+- `latest`
+- `latest-public`
+- single chapter number like `154`
+- comma-separated list like `152,154`
+- inclusive range like `150-154`
+- mixed selectors like `150-152,154`
+
+Default behavior:
+
+- without premium auth: defaults to `latest-public`
+- with premium auth: defaults to `latest`
+
+### Premium chapters
+
+Public chapters work without authentication.
+
+Premium chapters require a browser-exported `Cookie` header that contains `access_token`.
+
+Example:
+
+```bash
+asurascans-dl download revenge-of-the-iron-blooded-sword-hound --chapters 155 --cookie "access_token=...; other_cookie=..."
+```
+
+Notes:
+
+- the tool does not log in for you
+- if a chapter is locked and no valid `access_token` is available, it is skipped
+- premium fetching depends on current Asura site/API behavior
+
+### `catalog export`
+
+Export the full series catalog to JSON.
+
+```bash
+asurascans-dl catalog export --output asura-catalog.json
+```
+
+The catalog file is a snapshot of the site series list and does not store download progress.
+
+### `catalog download`
+
+Download from a previously exported catalog file.
+
+Examples:
+
+```bash
+asurascans-dl catalog download asura-catalog.json --series all --chapters latest-public
+asurascans-dl catalog download asura-catalog.json --series pending --chapters all
+asurascans-dl catalog download asura-catalog.json --series revenge-of-the-iron-blooded-sword-hound
+asurascans-dl catalog download asura-catalog.json --state asura-catalog.state.json --output downloads
+```
+
+Additional options:
+
+- `--series <selector>`
+- `--state <file>`
+
+`--series` supports:
+
+- `all`
+- `pending`
+- comma-separated API/public slugs
+
+### Progress and retry behavior
+
+During interactive downloads, each chapter shows a single in-place progress line:
+
+```text
+Downloading Chapter 154 [7/14]
+```
+
+Retry behavior:
+
+- transient HTTP failures are retried automatically
+- `429` responses honor `Retry-After` when present
+- rate limiting triggers a shared cooldown so later requests stop hammering the site
+- failed transient page downloads get additional low-concurrency recovery passes
+
+## Output
+
+Base output layout:
+
+```text
+<output>/<series title>/
+```
+
+Files written:
+
+- `series.json`
+- `download-session-<timestamp>.json`
+- chapter folders or CBZ files depending on mode
+
+### Normal image output
+
+Without `--cbz`, each chapter is written as:
+
+```text
+<output>/<series title>/Chapter <n>/
+```
+
+That chapter directory contains:
+
+- page images
+- `chapter.json`
+
+Direct image pages keep their original extension when possible. Reconstructed tiled pages are written as `.webp`.
+
+### CBZ output
+
+With `--cbz`, the chapter folder is temporary staging only.
+
+Final output keeps:
+
+- `Chapter <n>.cbz`
+- `Chapter <n>.json`
+
+The extracted image folder is removed after the archive is created.
+
+Reruns skip chapters whose `.cbz` already exists unless `--overwrite` is set.
+
+### Tracking and session files
+
+Catalog-driven downloads keep progress in a separate `.state.json` file so the catalog snapshot stays immutable.
+
+Non-dry-run download sessions also write a session summary file:
+
+```text
+download-session-<timestamp>.json
+```
+
+This file is updated throughout the run and includes:
+
+- session settings
+- aggregate totals
+- per-series results
+- per-chapter results
+- output paths
+
+It is especially useful for long catalog runs that get interrupted.
+
+## Development
+
+Development uses Bun.
+
+Install dependencies:
 
 ```bash
 bun install
 ```
 
-The lockfile is `bun.lock`, and the repo is intended to be installed and run with Bun.
-
-## Usage
-
-Run directly from source:
+Run from source:
 
 ```bash
-bun run ./src/cli.ts <command>
+bun run ./src/cli.ts --help
 ```
 
-Or with the package scripts:
-
-```bash
-bun run dev <command>
-```
-
-Catalog commands:
-
-```bash
-bun run dev catalog export --output asura-catalog.json
-bun run dev catalog download asura-catalog.json --series pending --chapters latest-public
-```
-
-### Search
-
-```bash
-bun run dev search "iron-blooded"
-```
-
-### Info
-
-```bash
-bun run dev info revenge-of-the-iron-blooded-sword-hound
-```
-
-You can also pass a full Asura URL:
-
-```bash
-bun run dev info https://asurascans.com/comics/revenge-of-the-iron-blooded-sword-hound-7f873ca6
-```
-
-### Download
-
-Download the latest chapter:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound
-```
-
-Download the latest public chapter explicitly:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters latest-public
-```
-
-Download a range:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 150-154
-```
-
-Download specific chapters to a custom directory:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 152,154 --output downloads
-```
-
-Overwrite existing files:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 154 --overwrite
-```
-
-Control image download concurrency:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 154 --concurrency 8
-```
-
-Preview the chapter resolution without writing files:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 150-154 --dry-run
-```
-
-Create a CBZ alongside the chapter folder:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 154 --cbz
-```
-
-### Catalog Snapshot And Tracking
-
-Export the full site catalog to JSON:
-
-```bash
-bun run dev catalog export --output asura-catalog.json
-```
-
-Download from a catalog snapshot:
-
-```bash
-bun run dev catalog download asura-catalog.json --series all --chapters latest-public
-```
-
-Download only series that are not yet marked complete in the tracking state:
-
-```bash
-bun run dev catalog download asura-catalog.json --series pending --chapters all
-```
-
-## Premium Chapters
-
-Public chapters work without authentication.
-
-For premium chapters, pass a browser-exported `Cookie` header containing `access_token`:
-
-```bash
-bun run dev download revenge-of-the-iron-blooded-sword-hound --chapters 155 --cookie "access_token=...; other_cookie=..."
-```
-
-Notes:
-
-- the tool does not implement account login
-- if a requested chapter is locked and no valid `access_token` is provided, it is skipped and reported in the summary
-- premium download support depends on the current Asura site/API behavior
-
-## Output Layout
-
-Downloads are written to:
-
-```text
-<output>/<manga title>/Chapter <chapter-number>/
-```
-
-Example:
-
-```text
-downloads/Revenge of the Iron-Blooded Sword Hound/Chapter 154/001.webp
-```
-
-Direct image pages keep their original extension when possible. Reconstructed tiled pages are written as `.webp`.
-Each downloaded chapter also gets a `chapter.json` file with source and result metadata.
-Each series directory gets a `series.json` file with normalized series metadata and chapter counts.
-Each non-dry-run session also writes a `download-session-<timestamp>.json` file in the output root and updates it throughout the run so long catalog downloads leave behind a resumable audit trail even if they are interrupted.
-If `--cbz` is enabled, the chapter folder is treated as temporary staging only. The final output keeps `Chapter <n>.cbz` plus a sibling `Chapter <n>.json` metadata file, and reruns skip chapters whose `.cbz` already exists unless `--overwrite` is set.
-Catalog exports are written as standalone snapshot JSON files.
-Catalog-driven downloads keep progress in a separate `.state.json` file so the snapshot stays immutable.
-
-## Development
-
-Type-check:
+Common development commands:
 
 ```bash
 bun run typecheck
-```
-
-Run tests:
-
-```bash
 bun test
-```
-
-Build:
-
-```bash
 bun run build
-```
-
-Release binary build:
-
-```bash
 bun run release:build
 ```
 
-Notes:
+## Notes
 
-- release binaries are built with Bun and target native GitHub release artifacts for Windows and Linux
-- each GitHub runner builds its own native artifact because the packaged `sharp` runtime is platform-specific
-- the release binary is still a single downloadable file, but on first image-processing use it extracts the embedded `sharp` runtime to a cache directory under the system temp folder
-- normal development and source usage are expected to run under Bun
-
-## Project Notes
-
-- `tests/fixtures/` contains captured HTML snippets used to test Astro prop parsing without relying on live network responses
+- release binaries are built with Bun on GitHub Actions for Windows and Linux
+- the release binary is still a single downloadable file, but on first image-processing use it extracts the embedded `sharp` runtime into the system temp directory
+- `tests/fixtures/` contains captured HTML snippets used to test Astro prop parsing without depending on live network responses
