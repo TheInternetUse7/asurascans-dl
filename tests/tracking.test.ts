@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getCompletedSeriesSet, getDefaultStatePath, updateSeriesState } from "../src/tracking.js";
+import {
+  getCompletedSeriesSet,
+  getDefaultStatePath,
+  updateSeriesFailureState,
+  updateSeriesState,
+} from "../src/tracking.js";
 import type { DownloadStateFile, SChapter, SeriesRef } from "../src/types.js";
 
 const series: SeriesRef = {
@@ -80,4 +85,20 @@ test("updateSeriesState records chapter progress and completion", () => {
   assert.equal(state.series.alpha?.downloadedChapterCount, 2);
   assert.deepEqual([...getCompletedSeriesSet(state)], ["alpha"]);
   assert.equal(state.series.alpha?.chapters["1"]?.status, "downloaded");
+});
+
+test("updateSeriesFailureState records a recoverable series-level failure", () => {
+  const state: DownloadStateFile = {
+    version: 1,
+    updatedAt: "2026-03-22T00:00:00.000Z",
+    series: {},
+  };
+
+  updateSeriesFailureState(state, series, "Request failed: 404 Not Found", "catalog.json");
+
+  assert.equal(state.catalogPath?.endsWith("catalog.json"), true);
+  assert.equal(state.series.alpha?.status, "failed");
+  assert.equal(state.series.alpha?.downloadedChapterCount, 0);
+  assert.equal(state.series.alpha?.knownChapterCount, 0);
+  assert.equal(state.series.alpha?.note, "Request failed: 404 Not Found");
 });

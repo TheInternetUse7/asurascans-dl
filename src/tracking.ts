@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomically } from "./atomic-write.js";
 import type {
   ChapterDownloadState,
   DownloadStateFile,
@@ -51,9 +52,8 @@ export async function loadStateFile(statePath: string): Promise<DownloadStateFil
 
 export async function saveStateFile(statePath: string, state: DownloadStateFile): Promise<string> {
   const resolvedPath = path.resolve(statePath);
-  await mkdir(path.dirname(resolvedPath), { recursive: true });
   state.updatedAt = new Date().toISOString();
-  await writeFile(resolvedPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await writeFileAtomically(resolvedPath, `${JSON.stringify(state, null, 2)}\n`);
   return resolvedPath;
 }
 
@@ -102,10 +102,41 @@ export function updateSeriesState(
     downloadedChapterCount,
     lastAttemptAt: now,
     lastSuccessAt: hasSuccessfulResult ? now : previous?.lastSuccessAt,
+    note: previous?.note,
     chapters: chapterMap,
   };
 
   state.series[series.apiSlug] = seriesState;
+  return state;
+}
+
+export function updateSeriesFailureState(
+  state: DownloadStateFile,
+  series: SeriesRef,
+  note: string,
+  catalogPath?: string,
+): DownloadStateFile {
+  const now = new Date().toISOString();
+  if (catalogPath) {
+    state.catalogPath = path.resolve(catalogPath);
+  }
+
+  const previous = state.series[series.apiSlug];
+  state.series[series.apiSlug] = {
+    title: series.title,
+    apiSlug: series.apiSlug,
+    publicSlug: series.publicSlug,
+    status: "failed",
+    knownChapterCount: previous?.knownChapterCount ?? 0,
+    downloadedChapterCount: previous?.downloadedChapterCount ?? 0,
+    lastAttemptAt: now,
+    lastSuccessAt: previous?.lastSuccessAt,
+    note,
+    chapters: {
+      ...(previous?.chapters ?? {}),
+    },
+  };
+
   return state;
 }
 

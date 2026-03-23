@@ -15,6 +15,7 @@ import {
   completeSessionSummary,
   createSessionSummary,
   getDefaultSessionSummaryPath,
+  recordFailedSessionSeries,
   updateSessionSummary,
   writeSessionSummary,
 } from "./session-summary.js";
@@ -23,6 +24,7 @@ import {
   getDefaultStatePath,
   loadStateFile,
   saveStateFile,
+  updateSeriesFailureState,
   updateSeriesState,
 } from "./tracking.js";
 import type { TrackedChapterResult } from "./tracking.js";
@@ -159,6 +161,19 @@ Examples:
 
 function printVersion(): void {
   console.log(CLI_VERSION);
+}
+
+function shouldPrintHelpForError(message: string): boolean {
+  return [
+    "requires a query string.",
+    "requires a slug or URL.",
+    "requires a catalog file path.",
+    "requires a subcommand",
+    "Unknown command:",
+    "Unknown catalog subcommand:",
+    "--concurrency must be a positive number.",
+    "Invalid chapter selector",
+  ].some((fragment) => message.includes(fragment));
 }
 
 function formatChapterTitle(chapter: SChapter): string {
@@ -557,20 +572,33 @@ async function handleDownload(input: string, options: Record<string, string | bo
     console.log(`Session summary: ${sessionPath}`);
   }
 
-  await executeSeriesDownload(series, runtime, async (snapshot) => {
-    if (!session || !sessionPath) {
-      return;
-    }
+  try {
+    await executeSeriesDownload(series, runtime, async (snapshot) => {
+      if (!session || !sessionPath) {
+        return;
+      }
 
-    updateSessionSummary(session, {
-      series: snapshot.series,
-      selectedChapterNumbers: snapshot.selected.map((chapter) => chapter.numberText),
-      chapterResults: snapshot.chapterResults,
-      totals: toSessionTotals(snapshot.summary),
-      completed: snapshot.completed,
+      updateSessionSummary(session, {
+        series: snapshot.series,
+        selectedChapterNumbers: snapshot.selected.map((chapter) => chapter.numberText),
+        chapterResults: snapshot.chapterResults,
+        totals: toSessionTotals(snapshot.summary),
+        completed: snapshot.completed,
+      });
+      await writeSessionSummary(sessionPath, session);
     });
-    await writeSessionSummary(sessionPath, session);
-  });
+  } catch (error) {
+    if (session && sessionPath) {
+      recordFailedSessionSeries(
+        session,
+        series,
+        error instanceof Error ? error.message : String(error),
+      );
+      completeSessionSummary(session);
+      await writeSessionSummary(sessionPath, session);
+    }
+    throw error;
+  }
 
   if (session && sessionPath) {
     completeSessionSummary(session);
@@ -637,25 +665,40 @@ async function handleCatalogDownload(
     console.log("");
     console.log(`[${index + 1}/${selectedSeries.length}] ${series.title}`);
 
-    const result = await executeSeriesDownload(series, runtime, async (snapshot) => {
-      if (!session || !sessionPath) {
-        return;
+    try {
+      const result = await executeSeriesDownload(series, runtime, async (snapshot) => {
+        if (!session || !sessionPath) {
+          return;
+        }
+
+        updateSessionSummary(session, {
+          series: snapshot.series,
+          selectedChapterNumbers: snapshot.selected.map((chapter) => chapter.numberText),
+          chapterResults: snapshot.chapterResults,
+          totals: toSessionTotals(snapshot.summary),
+          completed: snapshot.completed,
+        });
+        await writeSessionSummary(sessionPath, session);
+      });
+      addSummary(aggregate, result.summary);
+
+      if (!runtime.dryRun) {
+        updateSeriesState(state, series, result.chapters, result.chapterResults, catalogPath);
+        await saveStateFile(statePath, state);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed series ${series.title}: ${message}`);
+
+      if (session && sessionPath) {
+        recordFailedSessionSeries(session, series, message);
+        await writeSessionSummary(sessionPath, session);
       }
 
-      updateSessionSummary(session, {
-        series: snapshot.series,
-        selectedChapterNumbers: snapshot.selected.map((chapter) => chapter.numberText),
-        chapterResults: snapshot.chapterResults,
-        totals: toSessionTotals(snapshot.summary),
-        completed: snapshot.completed,
-      });
-      await writeSessionSummary(sessionPath, session);
-    });
-    addSummary(aggregate, result.summary);
-
-    if (!runtime.dryRun) {
-      updateSeriesState(state, series, result.chapters, result.chapterResults, catalogPath);
-      await saveStateFile(statePath, state);
+      if (!runtime.dryRun) {
+        updateSeriesFailureState(state, series, message, catalogPath);
+        await saveStateFile(statePath, state);
+      }
     }
   }
 
@@ -745,7 +788,10 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  printHelp();
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  if (shouldPrintHelpForError(message)) {
+    printHelp();
+  }
   process.exitCode = 1;
 });

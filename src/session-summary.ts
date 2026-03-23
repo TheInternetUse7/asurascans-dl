@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomically } from "./atomic-write.js";
 import type { TrackedChapterResult } from "./tracking.js";
 import type {
   DownloadSessionSummary,
@@ -14,6 +14,7 @@ export interface SessionSeriesSnapshot {
   chapterResults: TrackedChapterResult[];
   totals: SessionSummaryTotals;
   completed: boolean;
+  note?: string;
 }
 
 export interface CreateSessionSummaryOptions {
@@ -139,6 +140,7 @@ export function updateSessionSummary(
     startedAt: previousStartedAt ?? now,
     updatedAt: now,
     completedAt: snapshot.completed ? now : undefined,
+    note: snapshot.note,
     totals: { ...snapshot.totals },
     chapters: snapshot.chapterResults.map((result) => ({
       number: result.chapter.numberText,
@@ -175,9 +177,44 @@ export function completeSessionSummary(session: DownloadSessionSummary, now = ne
   return session;
 }
 
+export function recordFailedSessionSeries(
+  session: DownloadSessionSummary,
+  series: SeriesRef,
+  note: string,
+  now = new Date().toISOString(),
+): DownloadSessionSummary {
+  const existingIndex = session.series.findIndex((entry) => entry.apiSlug === series.apiSlug);
+  const previousStartedAt = existingIndex >= 0 ? session.series[existingIndex]?.startedAt : now;
+
+  const seriesSummary: SessionSeriesSummary = {
+    title: series.title,
+    apiSlug: series.apiSlug,
+    publicSlug: series.publicSlug,
+    requestedChapters: [],
+    status: "failed",
+    startedAt: previousStartedAt ?? now,
+    updatedAt: now,
+    completedAt: now,
+    note,
+    totals: createEmptySessionTotals(),
+    chapters: [],
+  };
+
+  if (existingIndex >= 0) {
+    session.series[existingIndex] = seriesSummary;
+  } else {
+    session.series.push(seriesSummary);
+  }
+
+  session.updatedAt = now;
+  session.startedSeriesCount = session.series.length;
+  session.completedSeriesCount = session.series.filter((entry) => entry.completedAt).length;
+  session.totals = recomputeSessionTotals(session.series);
+  return session;
+}
+
 export async function writeSessionSummary(summaryPath: string, session: DownloadSessionSummary): Promise<string> {
   const resolvedPath = path.resolve(summaryPath);
-  await mkdir(path.dirname(resolvedPath), { recursive: true });
-  await writeFile(resolvedPath, `${JSON.stringify(session, null, 2)}\n`, "utf8");
+  await writeFileAtomically(resolvedPath, `${JSON.stringify(session, null, 2)}\n`);
   return resolvedPath;
 }

@@ -117,6 +117,7 @@ export interface SeriesDownloadState {
   downloadedChapterCount: number;
   lastAttemptAt?: string;
   lastSuccessAt?: string;
+  note?: string;
   chapters: Record<string, ChapterDownloadState>;
 }
 
@@ -245,6 +246,7 @@ export interface SessionSeriesSummary {
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
+  note?: string;
   totals: SessionSummaryTotals;
   chapters: SessionChapterSummary[];
 }
